@@ -1,41 +1,40 @@
 {% extends "base.html" %}
-{% from "macros.html" import severity with context %}
+{% from "macros.html" import severity, evidence with context %}
 {% block title %}{{ alert.title[:80] }}{% endblock %}
 {% block body %}
 <div class="container-page py-8">
   <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/food/recalls">Food recalls</a></nav>
-  <div class="mt-3 flex flex-wrap items-center gap-2">{{ severity(alert.severity) }}{% if alert.classification %}<span class="tag">{{ alert.classification }}</span>{% endif %}</div>
+  <div class="mt-3 flex flex-wrap items-center gap-2">{{ severity(alert.severity) }} {{ evidence(alert.evidence) }}</div>
   <h1 class="mt-3 text-2xl font-bold sm:text-3xl">{{ alert.title }}</h1>
-  <p class="mt-2 text-ink-600">{{ alert.country_code|flag }} {{ alert.regulator }}{% if country and country not in alert.regulator %} ({{ country }}){% endif %} · {{ alert.published_at|date }}</p>
+  <p class="mt-2 text-ink-600">{{ alert.country_code|flag }} {{ alert.regulator }}{% if country and country not in alert.regulator %} ({{ country }}){% endif %}{% if alert.evidence == "report" %} action, as reported by {{ source_host(alert.source_url) }}{% endif %} · {{ alert.published_at|date }}</p>
 
   <div class="mt-6 grid gap-6 lg:grid-cols-3">
     <div class="space-y-6 lg:col-span-2">
       {% set identifiable = lots or alert.all_lots or alert.product_codes %}
       {% set curated = alert.source_id == "curated" %}
-      {% set official = not curated or source_kind(alert.source_url) == "official" %}
+      {% set official = alert.evidence in ("official", "lab_test") %}
       {% if curated %}
       <section class="rounded-xl bg-ink-100 p-4 text-sm text-ink-800">
-        <p class="font-semibold">Added by our curators</p>
-        <p class="mt-1">{% if official %}From the regulator's own notice, linked below.{% else %}From a published report of the regulator's action ({{ source_host(alert.source_url) }}), linked below. Check it for the regulator's own statement.{% endif %}</p>
+        <p>{% if alert.evidence == "lab_test" %}<span class="font-semibold">Added by our team</span> from an official test result published by {{ alert.regulator }}, linked below. It applies to the samples or batch that were tested.{% elif alert.evidence == "official" %}<span class="font-semibold">Added by our team</span> from {{ alert.regulator }}'s own notice, linked below.{% else %}<span class="font-semibold">Added by our team</span> from a news report ({{ source_host(alert.source_url) }}). We could not link to {{ alert.regulator }}'s own notice. Check with the seller, the company or {{ alert.regulator }}.{% endif %}</p>
       </section>
       {% endif %}
       <section class="rounded-2xl bg-red-50 p-5 text-red-950 ring-1 ring-red-200">
         <h2 class="font-bold">If you have this product</h2>
         {% if identifiable %}
         <ol class="mt-2 list-decimal space-y-1 pl-5">
-          <li>Compare the brand, pack, barcode and codes on your pack with the details on this page and in the notice.</li>
-          <li>If they match, don't eat or serve it. Return it to the shop or throw it away, as the notice says.</li>
+          <li>Compare the brand, pack, barcode and codes on your pack with the details on this page{% if official %} and in the notice{% else %} and in the source report{% endif %}.</li>
+          <li>If they match, don't eat or serve it. {% if official %}Return it to the shop or throw it away, as the notice says.{% else %}Keep it aside and ask the shop or the company about a return or refund.{% endif %}</li>
           <li>If someone feels unwell after eating it, contact a doctor.</li>
         </ol>
         {% else %}
         <ol class="mt-2 list-decimal space-y-1 pl-5">
-          <li>No batch codes or barcodes have been published for this, so we can't tell which packs are affected.</li>
-          <li>Read the source, and ask the seller or the company whether your pack is included.</li>
+          <li>We don't list batch numbers or barcodes for this. Read the source to see which packs are affected: some notices identify packs by size or best-before date instead.</li>
+          <li>If you are still unsure, ask the seller or the company whether your pack is included.</li>
           <li>If someone feels unwell after eating it, contact a doctor.</li>
         </ol>
         {% endif %}
       </section>
-      {% if alert.reason %}<section class="card card-pad"><h2 class="font-bold">Why it was recalled</h2><p class="mt-2 whitespace-pre-line text-ink-700">{{ alert.reason }}</p></section>{% endif %}
+      {% if alert.reason %}<section class="card card-pad"><h2 class="font-bold">{{ "What was reported" if alert.evidence == "report" else "Why it was recalled" }}</h2><p class="mt-2 whitespace-pre-line text-ink-700">{{ alert.reason }}</p></section>{% endif %}
       <section class="card card-pad">
         <h2 class="font-bold">Products and codes</h2>
         {% if alert.product_names %}<p class="mt-2 text-ink-700">{{ alert.product_names|join(", ") }}</p>{% endif %}
@@ -44,7 +43,7 @@
         <p class="mt-3 text-sm text-ink-600">Batch, lot or date codes listed:</p>
         <p class="mt-1 font-mono text-sm text-ink-900">{% for lot, expiry in lots %}{{ lot }}{% if expiry %} (exp. {{ expiry }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}{% if alert.lot_count > lots|length %} … and {{ alert.lot_count - lots|length }} more{% endif %}</p>
         {% elif alert.all_lots %}<p class="mt-3 text-sm text-ink-700">All codes of this product are affected.</p>
-        {% else %}<p class="mt-3 text-sm text-ink-600">No batch codes were published for this notice.</p>{% endif %}
+        {% else %}<p class="mt-3 text-sm text-ink-600">No batch numbers are listed in this source.</p>{% endif %}
       </section>
       {% if alert.product_description %}<section class="card card-pad"><h2 class="font-bold">{{ "Details from the regulator" if official else "Details from the source" }}</h2><p class="mt-2 whitespace-pre-line text-sm text-ink-700">{{ alert.product_description[:2500] }}{% if alert.product_description|length > 2500 %}…{% endif %}</p></section>{% endif %}
     </div>
@@ -52,9 +51,9 @@
       <div class="card card-pad text-sm">
         <dl class="space-y-3">
           {% if alert.manufacturer %}<div><dt class="font-semibold text-ink-900">Company</dt><dd class="mt-0.5 text-ink-700">{{ alert.manufacturer }}</dd></div>{% endif %}
-          <div><dt class="font-semibold text-ink-900">Source</dt><dd class="mt-0.5 text-ink-700">{{ alert.source.name }}</dd></div>
+          <div><dt class="font-semibold text-ink-900">Source</dt><dd class="mt-0.5 text-ink-700">{% if curated %}{{ EVIDENCE_LABELS[alert.evidence] }} ({{ source_host(alert.source_url) }}){% else %}{{ alert.source.name }}{% endif %}</dd></div>
         </dl>
-        <a href="{{ alert.source_url }}" class="btn-primary mt-4 w-full" rel="noopener noreferrer" target="_blank">{{ "Read the original notice" if official else "Read the source report" }}</a>
+        <a href="{{ alert.source_url }}" class="btn-primary mt-4 w-full" rel="noopener noreferrer" target="_blank">{% if source_host(alert.source_url) == "api.fda.gov" %}Open the FDA's recall record (data file){% elif not curated %}Read the original notice{% elif alert.evidence == "lab_test" %}Read the official test result{% elif alert.evidence == "report" %}Read the news report{% else %}Read the official notice{% endif %}</a>
       </div>
       <a href="/food/report?product={{ alert.product_names[0]|default(alert.title)|urlencode }}" class="btn-secondary w-full">Report a problem with this product</a>
     </aside>

@@ -18,9 +18,11 @@ SEVERITY_ORDER = {"critical": 0, "high": 1, "moderate": 2, "low": 3, "info": 4}
 
 
 def _summary(match: Match) -> str:
+    """One line per match. Alerts based on a news report say so first, so nobody mistakes them for a regulator's notice."""
     holding, alert = match.holding, match.alert
     batch = f" batch {holding.lot}" if holding.lot else ""
-    return f"{holding.product_name}{batch}: {alert.title}"
+    prefix = "[News report] " if alert.evidence == "report" else ""
+    return f"{prefix}{holding.product_name}{batch}: {alert.title}"
 
 
 def notify_new_matches(session: Session, match_ids: Iterable[uuid.UUID], send_email_digest: bool = True) -> int:
@@ -62,7 +64,9 @@ def notify_new_matches(session: Session, match_ids: Iterable[uuid.UUID], send_em
             lines += [
                 "",
                 "Check the affected stock, then record what you did in Batchlight.",
-                "Patients should keep taking their medicine and speak to a pharmacist or doctor unless the alert says otherwise.",
+                "Patients: follow the advice in the original notice. For contaminated or fake products it may say do not use "
+                "it at all. If someone has taken it, or may have taken it, they should see a doctor now. For a medicine taken "
+                "every day, speak to a pharmacist or doctor before stopping.",
                 "",
                 f"Notification settings: {settings.base_url}/app/settings",
             ]

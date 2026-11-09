@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% from "macros.html" import severity with context %}
+{% from "macros.html" import severity, evidence, alert_source with context %}
 {% block body %}
 <section class="bg-ink-900 text-white">
   <div class="container-page py-10 sm:py-14">
     <p class="text-sm font-semibold uppercase tracking-widest text-beam-300">Free, independent, sourced</p>
-    <h1 class="mt-3 max-w-3xl text-3xl font-bold leading-tight text-white sm:text-5xl">Is it safe? Check your medicine or food against official alerts.</h1>
-    <p class="mt-4 max-w-2xl text-lg text-ink-200">We bring together recalls and safety findings from regulators and published studies, so you can check what is in your home, report a problem and find a lab you can trust.</p>
+    <h1 class="mt-3 max-w-3xl text-3xl font-bold leading-tight text-white sm:text-5xl">Has it been recalled or flagged? Check your medicine or food against safety alerts.</h1>
+    <p class="mt-4 max-w-2xl text-lg text-ink-200">We bring together recalls and safety findings from regulators, published studies and some news reports, each one labelled, so you can check what is in your home, report a problem and learn how to get food tested at an accredited lab.</p>
   </div>
 </section>
 
@@ -13,10 +13,10 @@
   <form action="/check" method="get" role="search" aria-labelledby="h-med" class="card card-pad">
     <div class="flex items-center gap-2"><span class="rounded-lg bg-ink-100 px-2 py-1 text-xs font-bold uppercase tracking-wide text-ink-700">Medicines</span><span class="text-xs text-ink-500">{{ counts.get("medicine", 0)|int }} alerts</span></div>
     <h2 id="h-med" class="mt-3 text-xl font-bold">Check a medicine batch</h2>
-    <p class="mt-1 text-sm text-ink-600">Type the batch or lot number from the strip or box, and the medicine's name.</p>
+    <p class="mt-1 text-sm text-ink-600">Type the batch number (often marked "B.No.") and the medicine's name. We check medicine and medical device alerts from the US FDA, UK MHRA, Health Canada and WHO, mostly from January 2024 onward, and a few Indian alerts added by our team. India's CDSCO monthly lists of failed medicine samples are not included yet.</p>
     <div class="mt-4 space-y-3">
       <div><label for="m-batch" class="label">Batch or lot number</label><input id="m-batch" name="batch" class="input font-mono" autocomplete="off" placeholder="e.g. D2402551"></div>
-      <div><label for="m-name" class="label">Medicine name</label><input id="m-name" name="product" class="input" placeholder="e.g. Levothyroxine 50 mcg"></div>
+      <div><label for="m-name" class="label">Medicine name <span class="font-normal text-ink-500">(strongly recommended)</span></label><input id="m-name" name="product" class="input" placeholder="e.g. Levothyroxine 50 mcg"></div>
       <button class="btn-primary w-full" type="submit">Check medicine</button>
     </div>
   </form>
@@ -43,26 +43,26 @@
   </a>
   <a href="/food/testing" class="card card-pad block no-underline hover:bg-ink-50">
     <p class="font-bold text-ink-950">Get food tested</p>
-    <p class="mt-1 text-sm text-ink-600">How to have a sample tested properly, what it costs, and who to trust.</p>
+    <p class="mt-1 text-sm text-ink-600">How to have a sample tested properly, what it can cost, and how to check a lab's accreditation.</p>
   </a>
 </section>
 
 <section class="container-page mt-10 grid gap-8 lg:grid-cols-2">
   <div>
-    <div class="flex items-end justify-between"><h2 class="text-lg font-bold">Recent serious food recalls</h2><a href="/food/recalls" class="text-sm">All food recalls</a></div>
+    <div class="flex items-end justify-between"><h2 class="text-lg font-bold">Recent serious food recalls (worldwide, mostly US and Canada)</h2><a href="/food/recalls" class="text-sm">All food recalls</a></div>
     <ul class="mt-3 space-y-2">
       {% for alert in food_alerts %}
       <li class="card stripe-{{ alert.severity }} p-4"><a href="/food/recalls/{{ alert.id }}" class="font-semibold text-ink-950">{{ alert.title }}</a>
-        <p class="mt-1 text-xs text-ink-500">{{ severity(alert.severity) }} {{ alert.country_code|flag }} {{ alert.regulator }} · {{ alert.published_at|date }}</p></li>
+        <p class="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-500">{{ severity(alert.severity) }} {{ evidence(alert.evidence) }} <span>{{ alert_source(alert) }}</span></p></li>
       {% else %}<li class="card p-4 text-sm text-ink-600">Food recalls appear here after the first data refresh.</li>{% endfor %}
     </ul>
   </div>
   <div>
-    <div class="flex items-end justify-between"><h2 class="text-lg font-bold">Recent serious medicine alerts</h2><a href="/alerts" class="text-sm">All medicine alerts</a></div>
+    <div class="flex items-end justify-between"><h2 class="text-lg font-bold">Recent serious medicine and medical device alerts (mostly US, UK, Canada and WHO)</h2><a href="/alerts" class="text-sm">All medicine alerts</a></div>
     <ul class="mt-3 space-y-2">
       {% for alert in medicine_alerts %}
       <li class="card stripe-{{ alert.severity }} p-4"><a href="/alerts/{{ alert.id }}" class="font-semibold text-ink-950">{{ alert.title }}</a>
-        <p class="mt-1 text-xs text-ink-500">{{ severity(alert.severity) }} {{ alert.country_code|flag }} {{ alert.regulator }} · {{ alert.published_at|date }}</p></li>
+        <p class="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-500">{{ severity(alert.severity) }} {{ evidence(alert.evidence) }} <span>{{ alert_source(alert) }}</span></p></li>
       {% else %}<li class="card p-4 text-sm text-ink-600">Medicine alerts appear here after the first data refresh.</li>{% endfor %}
     </ul>
   </div>
@@ -79,7 +79,7 @@
       </a>
       {% endfor %}
     </div>
-    <p class="mt-4 text-sm text-ink-600">Every finding links to the regulator, study or report it comes from. We never say a product is adulterated unless an accredited laboratory or a regulator has found it.</p>
+    <p class="mt-4 text-sm text-ink-600">Every finding links to the regulator, study or report it comes from, and says which it is. We never say a product is adulterated unless a regulator or an accredited laboratory has found it, and we say so when we know this only from a news report.</p>
   </div>
 </section>
 
@@ -87,8 +87,8 @@
   <div class="card card-pad">
     <h2 class="font-bold">What we do</h2>
     <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-ink-700">
-      <li>Collect medicine and food recalls from the US FDA, UK MHRA, Health Canada, the Canadian Food Inspection Agency and the WHO, and add notices from India's FSSAI by hand.</li>
-      <li>Summarise what official surveys and peer-reviewed studies found, with links.</li>
+      <li>Collect medicine and food recalls from the US FDA, UK MHRA, Health Canada, the Canadian Food Inspection Agency and the WHO. A few Indian food and medicine actions are added by hand, and each one says whether it comes from an official notice, an official lab result or a news report. India's CDSCO monthly drug alerts are not included yet.</li>
+      <li>Summarise what official tests, peer-reviewed studies and news reports found, with each source labelled and linked.</li>
       <li>Help you report a problem and reach the right authority.</li>
     </ul>
   </div>
@@ -97,7 +97,7 @@
     <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-ink-700">
       <li>We don't test products, and no app or photo can prove adulteration.</li>
       <li>"No alert found" does not prove a product is genuine or safe.</li>
-      <li>We don't give medical advice. Don't stop a medicine without asking a pharmacist or doctor.</li>
+      <li>We don't give medical advice. If an alert's notice says not to use a product, follow it, and see a doctor if someone has taken it. Otherwise, don't stop a medicine you need without asking a pharmacist or doctor.</li>
     </ul>
   </div>
 </section>

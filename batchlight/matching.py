@@ -93,11 +93,25 @@ def _covers(holding_tokens: set[str], alert_tokens: set[str]) -> set[str]:
     "Levothyroxine Sodium Tablets" needs "levothyroxine". Words such as
     "sodium" or "chloride" only count when the name has nothing more specific.
     """
-    strong = {t for t in holding_tokens if len(t) >= 4 and t not in WEAK_TOKENS}
-    required = strong or holding_tokens
+    required = _strong(holding_tokens) or holding_tokens
     if not required or not required <= alert_tokens:
         return set()
     return required
+
+
+def _strong(tokens: set[str]) -> set[str]:
+    """Distinctive words: four or more letters and not a salt or generic word."""
+    return {t for t in tokens if len(t) >= 4 and t not in WEAK_TOKENS}
+
+
+def _names_product(tokens: set[str]) -> bool:
+    """True when matching name words are enough on their own to identify a product.
+
+    That takes one distinctive word, or at least two words. A single short or
+    generic word, such as "pan" in "Pan 40", also appears in unrelated names
+    ("PAN filter membrane"), so it is not enough without a listed batch.
+    """
+    return len(tokens) >= 2 or bool(_strong(tokens))
 
 
 def score(alert: AlertFacts, holding: HoldingFacts, strict: bool = True) -> Decision | None:
@@ -115,6 +129,10 @@ def score(alert: AlertFacts, holding: HoldingFacts, strict: bool = True) -> Deci
       identity evidence: a product code, a matching manufacturer, or, for
       falsified and substandard alerts, the brand name. With ``strict=False``
       (the public batch check) a name match alone is enough.
+    * Without a product code, a product-level name match needs one
+      distinctive matching word (four or more letters, not a salt or generic
+      word), at least two matching words, or a matching manufacturer, so
+      "Pan 40" does not match "PAN filter membrane" by name alone.
     """
     reasons: list[str] = []
 
@@ -148,7 +166,7 @@ def score(alert: AlertFacts, holding: HoldingFacts, strict: bool = True) -> Deci
         return None  # The holding's batch is known and is not affected.
     if strength_conflict or (maker_conflict and not code_hit):
         return None
-    if not (code_hit or product_overlap):
+    if not (code_hit or (product_overlap and (_names_product(product_overlap) or maker_hit))):
         return None
     brand_hit = alert.alert_type in FALSIFIED_TYPES and bool(product_overlap)
     identity = code_hit or maker_hit or brand_hit or (not holding.manufacturer and not alert.manufacturer)
@@ -159,10 +177,10 @@ def score(alert: AlertFacts, holding: HoldingFacts, strict: bool = True) -> Deci
         reasons.insert(0, "The alert covers all batches of this product")
         confidence = 70
     elif not alert.lot_keys:
-        reasons.insert(0, "The alert does not list batch numbers here: check your batch against the source notice")
+        reasons.insert(0, "We could not read batch numbers from this alert: check your batch in the original notice")
         confidence = 62
     else:
-        reasons.insert(0, "No batch number is recorded for this item: check the pack against the listed batches")
+        reasons.insert(0, "No batch number was entered: compare the batch on your pack with the batches listed in the alert")
         confidence = 55
     if code_hit:
         confidence += 12

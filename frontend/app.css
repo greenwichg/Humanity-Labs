@@ -78,7 +78,8 @@
   @apply mt-1 text-xs font-medium text-red-700;
 }
 @utility badge {
-  @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap;
+  /* 13px text: badges carry the evidence and severity labels, so keep them readable on phones. */
+  @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[0.8125rem] leading-5 font-semibold whitespace-nowrap;
 }
 @utility sev-critical {
   @apply badge bg-red-100 text-red-800 ring-1 ring-red-200;

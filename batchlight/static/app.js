@@ -18,3 +18,10 @@ document.addEventListener("click", (event) => {
 document.addEventListener("change", (event) => {
   if (event.target.matches("[data-autosubmit]")) event.target.form.submit();
 });
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  for (const menu of document.querySelectorAll("details[data-menu][open]")) {
+    menu.open = false;
+    menu.querySelector("summary").focus();
+  }
+});

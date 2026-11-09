@@ -1,45 +1,53 @@
 {% extends "base.html" %}
-{% from "macros.html" import severity, alert_type with context %}
+{% from "macros.html" import severity, alert_type, evidence with context %}
 {% block title %}Check a batch{% endblock %}
 {% block body %}
 <div class="container-page py-8">
   <h1 class="text-2xl font-bold sm:text-3xl">Check a batch</h1>
-  <p class="mt-2 max-w-2xl text-ink-600">Search every alert Batchlight holds for a batch number. Adding the medicine name lets Batchlight confirm the match and also find alerts that cover all batches of a product.</p>
+  <p class="mt-2 max-w-2xl text-ink-600">We check medicine and medical device alerts from the US FDA, UK MHRA, Health Canada and WHO, mostly from January 2024 onward, and a few Indian alerts added by our team. India's CDSCO monthly lists of failed medicine samples are not included yet. Always add the medicine name: many alerts list their batches in a file we cannot read and are found only by name.</p>
 
   <form action="/check" method="get" class="card card-pad mt-6 grid gap-4 md:grid-cols-4 md:items-end" role="search">
     <div class="md:col-span-1"><label for="c-batch" class="label">Batch or lot number</label><input id="c-batch" name="batch" value="{{ batch }}" class="input font-mono" autocomplete="off" placeholder="e.g. E941A"></div>
-    <div class="md:col-span-1"><label for="c-product" class="label">Medicine name</label><input id="c-product" name="product" value="{{ product }}" class="input" placeholder="e.g. Tropicamide 1% eye drops"></div>
-    <div class="md:col-span-1"><label for="c-maker" class="label">Manufacturer <span class="font-normal text-ink-400">(optional)</span></label><input id="c-maker" name="manufacturer" value="{{ manufacturer }}" class="input" placeholder="As printed on the pack"></div>
+    <div class="md:col-span-1"><label for="c-product" class="label">Medicine name <span class="font-normal text-ink-500">(strongly recommended)</span></label><input id="c-product" name="product" value="{{ product }}" class="input" placeholder="e.g. Tropicamide 1% eye drops"></div>
+    <div class="md:col-span-1"><label for="c-maker" class="label">Manufacturer <span class="font-normal text-ink-500">(optional)</span></label><input id="c-maker" name="manufacturer" value="{{ manufacturer }}" class="input" placeholder="As printed on the pack"></div>
     <button class="btn-primary" type="submit">Check</button>
   </form>
+  {% if empty_search %}<p class="field-error mt-3" role="alert">Enter a batch number or medicine name.</p>{% endif %}
 
   {% if searched %}
   <section class="mt-8" aria-live="polite">
     {% if results %}
-    <div class="rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
-      <p class="font-semibold">{{ results|length }} alert{{ "s" if results|length != 1 }} may concern this {% if batch %}batch{% else %}product{% endif %}.</p>
-      <p class="mt-1 text-sm">Compare the details below with the pack in front of you, then follow the advice in the original notice. Patients should keep taking their medicine and talk to a pharmacist or doctor unless the alert says otherwise.</p>
+    {% set batch_hits = results|selectattr("batch_match")|list %}
+    {% set all_hits = results|selectattr("alert.all_lots")|list %}
+    {% set n_batch, n_all, n = batch_hits|length, all_hits|length, results|length %}
+    <div class="rounded-xl p-4 {{ 'border border-red-200 bg-red-50 text-red-900' if batch_hits or all_hits else 'bg-beam-50 text-ink-900 ring-1 ring-beam-200' }}">
+      <p class="font-semibold">{% if batch_hits and product %}Your batch is listed in {{ n_batch }} alert{{ "s" if n_batch != 1 }}. Check the details below.{% elif batch_hits %}This batch number appears in {{ n_batch }} alert{{ "s" if n_batch != 1 }}, but you did not enter a medicine name. Unrelated products often share batch numbers: compare the product name below with your pack.{% elif all_hits %}{{ n_all }} alert{{ "s" if n_all != 1 }} cover{{ "s" if n_all == 1 }} all batches of a product with this name. Check that the medicine and maker on your pack are the same.{% elif batch %}We found {{ n }} alert{{ "s" if n != 1 }} about products with a similar name. None lists your batch. Check whether the medicine, strength and maker on your pack are the same.{% else %}We found {{ n }} alert{{ "s" if n != 1 }} about products with a similar name. Check whether the medicine, strength, maker and batch on your pack match.{% endif %}</p>
+      <p class="mt-1 text-sm">Compare the medicine name, maker and batch number on your pack with each alert below. If they match, follow the advice in the original notice. For contaminated or fake products the notice may say do not use it at all; if someone has taken it, or may have taken it, see a doctor now. For a medicine you take every day, speak to a pharmacist or doctor before stopping.</p>
     </div>
     <ul class="mt-4 space-y-3">
       {% for r in results %}
       <li class="card stripe-{{ r.alert.severity }} p-4 sm:p-5">
         <div class="flex flex-wrap items-center gap-2">
-          {{ severity(r.alert.severity) }} {{ alert_type(r.alert.alert_type) }}
+          {{ severity(r.alert.severity) }} {{ alert_type(r.alert.alert_type) }} {{ evidence(r.alert.evidence) }}
           {% if r.batch_match %}<span class="badge bg-ink-900 text-white">Batch {{ batch }} is listed</span>{% elif r.decision %}<span class="badge bg-ink-100 text-ink-800">Product match: check your batch</span>{% endif %}
-          {% if r.decision %}<span class="text-xs text-ink-500">Confidence {{ r.decision.confidence }}%</span>{% endif %}
+          {% if r.decision %}<span class="text-sm text-ink-600">{% if r.batch_match %}Batch and name match{% elif r.alert.all_lots %}Name matches; alert covers all batches{% else %}Name matches; batch not confirmed{% endif %}</span>{% endif %}
         </div>
         <a href="/alerts/{{ r.alert.id }}" class="mt-2 block font-semibold text-ink-950">{{ r.alert.title }}</a>
-        <p class="mt-1 text-sm text-ink-600">{{ r.alert.country_code|flag }} {{ r.alert.regulator }} · {{ r.alert.published_at|date }}{% if r.alert.manufacturer %} · {{ r.alert.manufacturer }}{% endif %}</p>
+        <p class="mt-1 text-sm text-ink-600">{{ r.alert.country_code|flag }} {{ r.alert.regulator }}{% if r.alert.evidence == "report" %} action, as reported by {{ source_host(r.alert.source_url) }}{% endif %} · {{ r.alert.published_at|date }}{% if r.alert.manufacturer %} · {{ r.alert.manufacturer }}{% endif %}</p>
+        {% if r.alert.country_code and r.alert.country_code != "IN" %}<p class="mt-1 text-sm text-ink-600">This alert comes from {{ r.alert.regulator }} and is about products sold in that country. Medicines sold in India usually have different labels and batch numbers, so it applies to your pack only if the name, maker and batch match the notice.</p>{% endif %}
         {% if r.decision %}<ul class="mt-2 list-disc space-y-0.5 pl-5 text-sm text-ink-700">{% for reason in r.decision.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
         {% elif not product %}<p class="mt-2 text-sm text-ink-700">Only the batch number was checked. Make sure the product name and manufacturer also match the alert, because unrelated products can share a batch number.</p>{% endif %}
-        <div class="mt-3 flex flex-wrap gap-3 text-sm"><a href="/alerts/{{ r.alert.id }}">Full alert</a><a href="{{ r.alert.source_url }}" rel="noopener noreferrer" target="_blank">Original notice from {{ r.alert.regulator }}</a></div>
+        <div class="mt-3 flex flex-wrap gap-3 text-sm"><a href="/alerts/{{ r.alert.id }}">Full alert</a><a href="{{ r.alert.source_url }}" rel="noopener noreferrer" target="_blank">{% if source_host(r.alert.source_url) == "api.fda.gov" %}Open the FDA's recall record (data file){% elif r.alert.evidence == "report" %}News report ({{ source_host(r.alert.source_url) }}){% elif r.alert.evidence == "lab_test" %}Official test result from {{ r.alert.regulator }}{% else %}Original notice from {{ r.alert.regulator }}{% endif %}</a></div>
       </li>
       {% endfor %}
     </ul>
     {% else %}
-    <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
-      <p class="font-semibold">No alert in Batchlight matches {% if batch %}batch <span class="font-mono">{{ batch }}</span>{% endif %}{% if batch and product %} of {% endif %}{% if product %}{{ product }}{% endif %}.</p>
-      <p class="mt-1 text-sm">This is not proof that the product is genuine or of good quality. Batchlight only knows about alerts from the sources below. If a pack looks wrong (spelling mistakes, damaged seals, unusual colour or smell), report it to your national medicines regulator.</p>
+    <div class="rounded-xl bg-beam-50 p-4 text-ink-900 ring-1 ring-beam-200">
+      <p class="font-semibold">We found no alert for {% if batch %}batch <span class="font-mono">{{ batch }}</span>{% endif %}{% if batch and product %} of {% endif %}{% if product %}{{ product }}{% endif %} in the sources we search.</p>
+      {% if not product %}<p class="mt-1 text-sm font-semibold">You entered only a batch number. Many alerts, including most WHO alerts on contaminated or fake medicines, list their batches only in a separate file we have not read, so they can only be found by medicine name. Search again with the medicine name.</p>{% endif %}
+      <p class="mt-1 text-sm">This does not mean the medicine is safe or genuine. We check medicine and medical device alerts from the US FDA, UK MHRA, Health Canada and WHO, mostly from January 2024 onward, and a few Indian alerts added by our team. India's CDSCO monthly lists of failed medicine samples are not included yet.</p>
+      <p class="mt-1 text-sm">India's drug regulator, CDSCO, publishes monthly lists of medicine samples that government laboratories found not of standard quality, spurious or adulterated, on cdsco.gov.in under “Drug Alert”.</p>
+      <p class="mt-1 text-sm">If a pack looks wrong (spelling mistakes, broken seal, unusual colour or smell), show it to your pharmacist or doctor before using it, and complain to your state's drug control department. To report a side effect, call the Pharmacovigilance Programme of India on 1800-180-3024 (toll-free, Monday to Friday, 9 am to 5:30 pm).</p>
     </div>
     {% endif %}
   </section>
@@ -51,10 +59,11 @@
       {% for row in sources %}
       <li class="card px-4 py-3 text-sm">
         <p class="font-medium text-ink-900">{{ row.source.country_code|flag }} {{ row.source.name }}</p>
-        <p class="text-ink-500">{{ row.alerts|int }} alerts · {% if row.source.automated %}refreshed {{ row.source.last_success_at|ago }}{% else %}entered by curators{% endif %}</p>
+        <p class="text-ink-500">{{ row.alerts|int }} alerts · {% if row.source.automated %}refreshed {{ row.source.last_success_at|ago }}{% else %}added by our team{% endif %}</p>
       </li>
       {% endfor %}
     </ul>
+    <p class="mt-3 text-sm text-ink-600">Not included yet: India's CDSCO monthly drug alerts and state drug controllers' notices.</p>
   </section>
 </div>
 {% endblock %}

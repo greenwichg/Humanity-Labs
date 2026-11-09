@@ -4,29 +4,35 @@
 {% block body %}
 <div class="container-page max-w-3xl py-8">
   <h1 class="text-2xl font-bold sm:text-3xl">Report a food problem</h1>
-  <p class="mt-2 text-ink-600">Tell us about food that seemed wrong. A curator reviews every report. We never publish individual reports or name a product as unsafe because of a report.</p>
+  <p class="mt-2 text-ink-600">Tell us about food that seemed wrong. Our team reviews every report. We never publish individual reports or name a product as unsafe because of a report.</p>
 
   <div class="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-950 ring-1 ring-red-200">
     <p class="font-semibold">If someone is ill</p>
     <p class="mt-1">Get medical help first. Keep the food, its pack and the receipt if you can, in case the doctor or food safety officer needs them.</p>
   </div>
 
-  {% if errors.get("form") %}<div role="alert" class="mt-4 rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">{{ errors.form }}</div>
-  {% elif errors %}<div role="alert" class="mt-4 rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">Please fix the highlighted fields.</div>{% endif %}
+  {% set field_labels = {"problem": "What went wrong", "product_name": "Product name", "brand": "Brand", "batch": "Batch or lot number", "barcode": "Barcode number", "fssai_licence": "FSSAI licence number", "purchased_at": "Where you bought it", "city": "Town or city", "country_code": "Country", "description": "What happened", "contact_email": "Email"} %}
+  {% if errors.get("form") %}<div id="error-summary" role="alert" tabindex="-1" autofocus class="mt-4 rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">{{ errors.form }}</div>
+  {% elif errors %}
+  <div id="error-summary" role="alert" tabindex="-1" autofocus class="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+    <p class="font-medium">Please fix {{ "this answer" if errors|length == 1 else "these answers" }}:</p>
+    <ul class="mt-1 list-disc space-y-0.5 pl-5">{% for name, message in errors.items() %}<li><a href="#f-{{ name }}" class="text-red-800">{{ field_labels.get(name, name) }}</a>: {{ message }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
 
   <form method="post" action="/food/report" class="card card-pad mt-6 space-y-5" novalidate>
     {{ csrf() }}
     <div class="hidden" aria-hidden="true"><label for="f-website">Leave this empty</label><input id="f-website" name="website" tabindex="-1" autocomplete="off"></div>
-    <fieldset>
+    <fieldset {% if errors.get("problem") %}aria-describedby="e-problem"{% endif %}>
       <legend class="label">What went wrong?</legend>
       <div class="grid gap-2 sm:grid-cols-2">
         {% for key, label in problems.items() %}
         <label class="flex items-start gap-2 rounded-lg border border-ink-100 px-3 py-2 text-sm hover:bg-ink-50">
-          <input type="radio" name="problem" value="{{ key }}" class="mt-0.5" {% if form.get("problem") == key %}checked{% endif %} required> <span>{{ label }}</span>
+          <input type="radio" name="problem" value="{{ key }}" class="mt-0.5" {% if loop.first %}id="f-problem"{% endif %} {% if form.get("problem") == key %}checked{% endif %} required> <span>{{ label }}</span>
         </label>
         {% endfor %}
       </div>
-      {% if errors.get("problem") %}<p class="field-error">{{ errors.problem }}</p>{% endif %}
+      {% if errors.get("problem") %}<p id="e-problem" class="field-error">{{ errors.problem }}</p>{% endif %}
     </fieldset>
     <div class="grid gap-4 sm:grid-cols-2">
       <div class="sm:col-span-2">{{ field("product_name", "Product name", form, errors, required=True, placeholder="As printed on the pack") }}</div>
@@ -46,11 +52,12 @@
 
   <section class="card card-pad mt-6">
     <h2 class="font-bold">Make an official complaint too</h2>
-    <p class="mt-1 text-sm text-ink-700">Only regulators can investigate, test samples and take action. In India:</p>
+    <p class="mt-1 text-sm text-ink-700">Only regulators can investigate and take legal action. In India:</p>
     <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-ink-700">
-      <li>Use FSSAI's <span class="font-semibold">Food Safety Connect</span> app, or the complaint options on <a href="https://foscos.fssai.gov.in/" rel="noopener noreferrer" target="_blank">FSSAI's FoSCoS website</a>.</li>
+      <li>Complain on FSSAI's <a href="https://foscos.fssai.gov.in/consumergrievance/" rel="noopener noreferrer" target="_blank">Food Safety Connect</a> website or in the Food Safety Connect app; if you complain online you get a ticket number by SMS to track it. FSSAI also lists the toll-free helpline 1800-11-2100 and the email helpdesk-foscos@fssai.gov.in.</li>
       <li>Contact your state's Commissioner of Food Safety or local food safety officer.</li>
-      <li>For a consumer dispute with a seller, call the National Consumer Helpline on 1915 or use <a href="https://consumerhelpline.gov.in/" rel="noopener noreferrer" target="_blank">consumerhelpline.gov.in</a>.</li>
+      <li>For a consumer dispute with a seller, call the National Consumer Helpline on 1915 (8 am to 8 pm) or 1800114000, WhatsApp +91 88000 01915, or use <a href="https://consumerhelpline.gov.in/" rel="noopener noreferrer" target="_blank">consumerhelpline.gov.in</a>.</li>
+      <li>You can also pay to have the food analysed by a government Food Analyst yourself (Section 40 of the Food Safety and Standards Act): see <a href="/food/testing">Get food tested</a>.</li>
     </ul>
   </section>
 </div>

@@ -5,6 +5,8 @@ from batchlight.text import (
     manufacturer_key,
     manufacturer_similarity,
     name_tokens,
+    source_host,
+    source_kind,
     strengths,
 )
 
@@ -54,3 +56,38 @@ def test_holding_input_blank_optional_fields():
     data = HoldingInput(product_name="Coldrif syrup", lot="SR 13", quantity="", expiry_date="", product_code="", notes=" ")
     assert (data.quantity, data.expiry_date, data.product_code, data.notes) == (None, None, None, None)
     assert HoldingInput(product_name="X item", quantity="1,200").quantity == 1200
+
+
+def test_source_kind_official_hosts():
+    for url in [
+        "https://sansad.in/getFile/loksabhaquestions/annex/186/AU1094_lBx885.pdf?source=pqals",
+        "https://www.cfs.gov.hk/english/press/20240405_10919.html",
+        "https://www.who.int/news/item/05-10-2022-medical-product-alert-n-6-2022",
+        "https://cdn.who.int/media/docs/default-source/substandard-and-falsified/n5_2025_syrup-medicines_en.pdf",
+        "https://www.fssai.gov.in/docs/latest/press/Revised%20Press%20Release%20Gujarat%20Enforcement.pdf",
+        "https://cdsco.gov.in/",
+        "https://api.fda.gov/drug/enforcement.json",
+    ]:
+        assert source_kind(url) == "official", url
+
+
+def test_source_kind_news_and_lookalike_hosts():
+    for url in [
+        "https://www.businesstoday.in/india/story/example-559413-2026-10-04",
+        "https://medicaldialogues.in/news/industry/pharma/example-156618",
+        "https://www.business-standard.com/india-news/example.html",
+        "https://who.int.example.com/fake",  # a look-alike domain is not WHO
+        "https://notgov.in/",
+        "http://",
+        "",
+        None,
+    ]:
+        assert source_kind(url) == "report", url
+
+
+def test_source_host():
+    assert source_host("https://www.businesstoday.in/india/story/x") == "businesstoday.in"
+    assert source_host("https://cdn.who.int/media/docs/x.pdf") == "cdn.who.int"
+    assert source_host("https://WWW.CFS.GOV.HK/english/press/x.html") == "cfs.gov.hk"
+    assert source_host("https://sansad.in/getFile/x.pdf?source=pqals") == "sansad.in"
+    assert source_host(None) == "" and source_host("not a url") == ""

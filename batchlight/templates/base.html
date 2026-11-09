@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Check medicines and food against official safety alerts{% endblock %} · Humanity Labs</title>
-  <meta name="description" content="{% block description %}Batchlight brings medicine recalls and falsified-product alerts from regulators worldwide to the pharmacies, clinics and families holding the affected batches.{% endblock %}">
+  <title>{% block title %}Check medicines and food against safety alerts and recalls{% endblock %} · Humanity Labs</title>
+  <meta name="description" content="{% block description %}Check medicines against recall and falsified-product alerts from the US FDA, UK MHRA, Health Canada and WHO, and food against recalls and published test results.{% endblock %}">
   <meta name="theme-color" content="#13202f">
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/app.css?v={{ version }}">
@@ -28,7 +28,7 @@
         {% endfor %}
       </nav>
       <div class="flex items-center gap-2">
-        <a href="/food/report" class="btn-beam btn-sm"><span class="sm:hidden">Report</span><span class="hidden sm:inline">Report a problem</span></a>
+        <a href="/food/report" class="btn-beam btn-sm"><span class="sm:hidden">Report food</span><span class="hidden sm:inline">Report a food problem</span></a>
         {% if auth %}
           {% if auth.org %}
           <a href="/app/notifications" class="nav-link relative hidden sm:inline-block" aria-label="Notifications{% if unread %}, {{ unread }} unread{% endif %}">
@@ -40,7 +40,7 @@
         {% else %}
           <a href="/login" class="nav-link hidden sm:inline-block">Sign in</a>
         {% endif %}
-        <details class="relative md:hidden">
+        <details class="relative md:hidden" data-menu>
           <summary class="nav-link cursor-pointer list-none" aria-label="Menu">Menu</summary>
           <div class="absolute right-0 z-40 mt-2 w-60 rounded-xl border border-ink-100 bg-white p-2 shadow-lg">
             {% for href, label, active in nav %}<a href="{{ href }}" class="side-link">{{ label }}</a>{% endfor %}
@@ -56,7 +56,7 @@
       {% set subnav = [("/medicines", "Overview"), ("/check", "Check a batch"), ("/alerts", "Alerts"), ("/manufacturers", "Manufacturers"), ("/impact", "Impact")] %}
     {% endif %}
     <div class="border-t border-ink-800 bg-ink-950/40">
-      <nav aria-label="{{ 'Food' if in_food else 'Medicines' }} section" class="container-page flex gap-1 overflow-x-auto py-1.5 text-sm">
+      <nav aria-label="{{ 'Food' if in_food else 'Medicines' }} section" class="container-page flex flex-wrap gap-1 py-1.5 text-sm">
         {% for href, label in subnav %}
         {% set active = path == href or (href not in ("/food", "/medicines") and path.startswith(href)) %}
         <a href="{{ href }}" class="whitespace-nowrap rounded-md px-3 py-1.5 no-underline {{ 'bg-ink-800 text-white' if active else 'text-ink-200 hover:text-white' }}" {% if active %}aria-current="page"{% endif %}>{{ label }}</a>
@@ -81,11 +81,11 @@
     <div class="container-page grid gap-6 py-8 text-sm text-ink-600 md:grid-cols-4">
       <div>
         <div class="flex items-center gap-2 font-semibold text-ink-900"><img src="/static/logo.svg" alt="" class="h-6 w-6"> Humanity Labs</div>
-        <p class="mt-2">Free tools to check medicines and food against official safety alerts. Medicine alerts are powered by Batchlight.</p>
+        <p class="mt-2">Free tools to check medicines and food against safety alerts and recalls. Medicine alerts are powered by Batchlight.</p>
       </div>
       <div>
         <p class="font-semibold text-ink-900">Important</p>
-        <p class="mt-2">We relay official alerts and published test results, with a link to every source. We do not test products ourselves and cannot tell whether a product is adulterated. This is not medical advice.</p>
+        <p class="mt-2">We relay official alerts, published studies and some news reports, label which is which, and link to every source. We do not test products ourselves and cannot tell whether a product is adulterated. This is not medical advice.</p>
       </div>
       <div class="flex flex-col gap-1.5">
         <p class="font-semibold text-ink-900">Use</p>

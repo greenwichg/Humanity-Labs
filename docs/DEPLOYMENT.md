@@ -74,7 +74,7 @@ Run `uvicorn batchlight.main:app --host 127.0.0.1 --port 8000 --workers 2 --prox
 1. Sign up through the web UI to create your account.
 2. Make yourself a curator: `batchlight-entrypoint python -m batchlight.cli make-curator you@example.org`
 3. Open **Curator console** and press **Run now** on each source, or wait for the worker's first pass. The first FDA drug, device and food refresh takes several minutes.
-4. Load the curated India food actions: `batchlight-entrypoint python -m batchlight.cli seed-food-india`. It is safe to re-run.
+4. Load the hand-checked Indian medicine and food alerts: run `alembic upgrade head` first (the `migrate` step does this), then `batchlight-entrypoint python -m batchlight.cli seed-india`. It reads `batchlight/data/india_alerts.json`, is safe to re-run, and matches the medicine rows against workspace stock. The old command name `seed-food-india` still works. See [INDIA_COVERAGE.md](INDIA_COVERAGE.md) for what these rows cover and what is still missing.
 5. Check `/sources` shows recent refresh times for every source.
 
 ## Operations

@@ -121,7 +121,7 @@ def test_falsified_product_alert_matches_brand_stock_at_product_level(client, in
     ingest("who-mpa")
     match = db.scalar(select(Match))
     assert match is not None and match.level == "product"
-    assert "check your batch against the source notice" in match.reasons[0]
+    assert "check your batch in the original notice" in match.reasons[0]
 
 
 def test_failed_run_is_recorded(ingest, db):
@@ -217,3 +217,47 @@ def test_alerts_saved_by_a_failed_run_are_matched_by_the_next_run(client, ingest
     monkeypatch.setattr(batchlight.matching, "match_alerts", real)
     run = ingest("us-fda-drug")
     assert run.created == 0 and run.matched == 1
+
+
+def test_automated_records_default_to_official(ingest, db):
+    for source_id in ("us-fda-drug", "us-fda-device", "us-fda-food", "uk-mhra", "ca-health-canada", "ca-cfia-food", "who-mpa"):
+        assert ingest(source_id).status == "succeeded", source_id
+    assert count(db, Alert) > 0
+    assert set(db.scalars(select(Alert.evidence).distinct())) == {"official"}
+
+
+def test_content_hash_unchanged_by_official_default():
+    import hashlib
+    import json
+    from dataclasses import asdict
+    from datetime import date
+
+    from batchlight.ingest.base import AlertRecord
+
+    record = AlertRecord(
+        external_id="D-1",
+        title="Cinacalcet Tablets recall",
+        severity="high",
+        alert_type="recall",
+        source_url="https://www.fda.gov/",
+        published_at=date(2026, 10, 1),
+    )
+    assert record.evidence == "official"
+    legacy = asdict(record)
+    for key in ("raw", "partial", "evidence"):  # the payload hashed before the evidence field existed
+        legacy.pop(key)
+    assert record.content_hash() == hashlib.sha256(json.dumps(legacy, sort_keys=True, default=str).encode()).hexdigest()
+    record.evidence = "report"
+    assert record.content_hash() != hashlib.sha256(json.dumps(legacy, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def test_who_alert_keeps_all_manufacturers():
+    from datetime import date
+
+    from batchlight.ingest.who import map_page
+    from tests.conftest import fixture_text
+
+    url = "https://www.who.int/news/item/13-10-2025-medical-product-alert-n-5-2025--substandard-(contaminated)-oral-liquid-medicines"
+    record = map_page(url, fixture_text("who_alert_oral_liquids.html"), date(2025, 10, 13))
+    assert record.manufacturer == "Sresan Pharmaceutical, Rednex Pharmaceuticals, Shape Pharma"
+    assert record.evidence == "official"

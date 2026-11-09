@@ -12,7 +12,7 @@ Carry every medicine safety alert, batch by batch, from the regulator that issue
 
 Every week, regulators identify medicine and device batches that are contaminated, sub-potent, mislabelled, non-sterile or falsified. The information then dies on the way to the people holding the product:
 
-- **Alerts are fragmented.** Each regulator publishes on its own website, in its own format. India's CDSCO publishes monthly PDF lists of failed batches; WHO often publishes batch tables as images. Nobody normalises them into one batch-level record.
+- **Alerts are fragmented.** Each regulator publishes on its own website, in its own format. India's CDSCO publishes monthly PDF lists of failed batches; WHO usually publishes the batch table in a separate annex file. Nobody normalises them into one batch-level record.
 - **Alerts stop at the distributor.** Recall processes notify "consignees" (wholesalers, hospitals). Independent pharmacies, drug shops, clinics, care homes and patients rely on wholesaler letters, WhatsApp groups and news.
 - **Alerts don't cross borders.** A batch flagged in one country is often sold in others. The only propagation today is press coverage, weeks later.
 - **Nobody can tell whether an alert worked.** There is no record of who checked their shelves, what they found, and how fast they acted.
@@ -45,11 +45,11 @@ Batchlight is useful without any AI. Its core is data normalisation, determinist
 
 ## Core user journeys
 
-1. **Public batch check.** Enter a batch number, optionally with product name. See matching alerts with severity, reason, regulator, date and a link to the original notice. If nothing matches, see which sources were searched and when, with a plain statement that no alert does not prove the product is genuine.
+1. **Public batch check.** Enter a batch number and, strongly recommended, the product name (many alerts can be found only by name). See matching alerts with severity, reason, regulator, date, what the source link is (official notice, official lab result or news report) and a link to it. If nothing matches, see which sources were searched and when, and which major sources are not searched (for example India's CDSCO), with where to look instead. The page says plainly that no alert does not mean the product is safe or genuine.
 2. **Organisation onboarding.** Sign up, create a workspace (pharmacy, clinic, hospital, distributor or household) with country, add stock by hand or by CSV import. Batchlight immediately checks the stock against all existing alerts.
 3. **New alert to action.** The worker ingests a new alert, parses its batches and matches it. Every affected workspace gets an inbox item and an email. A member opens it, checks the shelf, and records the outcome and unit count. The match closes and time to action is recorded.
-4. **Household use.** A caregiver creates a household workspace and adds each medicine, with batch number from the pack if available. Matches come with patient-safe guidance: keep taking the medicine and talk to a pharmacist unless the alert says otherwise.
-5. **Curated alerts.** A curator enters an alert from a PDF notice, with each batch and expiry, or imports a CSV. It flows through the same matching and notification pipeline.
+4. **Household use.** A caregiver creates a household workspace and adds each medicine, with batch number from the pack if available. Matches come with guidance that follows the notice: for contaminated or fake products the notice may say do not use it, and anyone who has taken it should see a doctor; for other recalls, don't stop a medicine you need without talking to a pharmacist or doctor.
+5. **Curated alerts.** A curator enters an alert from a PDF notice, with each batch and expiry, or imports a CSV, and says whether the link is an official notice, an official lab result or a news report. That label is shown wherever the alert appears. It flows through the same matching and notification pipeline.
 6. **System integration.** A pharmacy management system uses an API key to sync stock and pull open matches.
 7. **Procurement check.** A procurement officer looks up a manufacturer and sees every alert against it across regulators.
 

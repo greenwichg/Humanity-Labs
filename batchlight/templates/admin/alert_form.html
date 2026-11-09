@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% from "macros.html" import csrf, field, textarea, select with context %}
-{% block title %}Enter an alert{% endblock %}
+{% block title %}Add an alert{% endblock %}
 {% block body %}
 <div class="container-page max-w-4xl py-8">
   <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/admin">Curator console</a></nav>
-  <h1 class="mt-2 text-2xl font-bold">Enter an alert from a regulator notice</h1>
-  <p class="mt-1 text-ink-600">Transcribe a notice that is published only as a PDF or image, such as CDSCO's monthly “Not of Standard Quality” lists or NAFDAC alerts. It is matched against every workspace as soon as you publish it.</p>
+  <h1 class="mt-2 text-2xl font-bold">Add an alert</h1>
+  <p class="mt-1 text-ink-600">Transcribe a notice that is published only as a PDF or image, such as CDSCO's monthly “Not of Standard Quality” lists or NAFDAC alerts. A medicine alert is matched against every workspace as soon as you publish it.</p>
   <form method="post" action="/admin/alerts" class="card card-pad mt-6 space-y-5" novalidate>
     {{ csrf() }}
     {% if errors %}<div role="alert" class="rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">Please fix the highlighted fields.</div>{% endif %}
@@ -26,7 +26,16 @@
       <label class="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" name="all_lots" value="true" {% if form.get("all_lots") in ("true", "on") %}checked{% endif %}> The alert covers all batches of the product</label>
       <div class="sm:col-span-2">{{ textarea("reason", "Reason", form, errors, rows=3) }}</div>
       {{ field("published_at", "Publication date", form, errors, type="date", required=True) }}
-      {{ field("source_url", "Link to the original notice", form, errors, type="url", required=True, placeholder="https://") }}
+      {{ field("source_url", "Link to the source", form, errors, type="url", required=True, placeholder="https://") }}
+      <div class="sm:col-span-2">
+        <label for="f-evidence" class="label">What is the link?</label>
+        <select id="f-evidence" name="evidence" class="input {% if errors.get('evidence') %}input-error{% endif %}" required aria-describedby="h-evidence{% if errors.get('evidence') %} e-evidence{% endif %}" {% if errors.get("evidence") %}aria-invalid="true"{% endif %}>
+          <option value="">Choose one</option>
+          {% for value, text in evidence_choices %}<option value="{{ value }}" {% if form.get("evidence") == value %}selected{% endif %}>{{ text }}</option>{% endfor %}
+        </select>
+        <p id="h-evidence" class="hint">This is shown to the public. The two official choices must link to a government, Parliament or WHO website.</p>
+        {% if errors.get("evidence") %}<p id="e-evidence" class="field-error">{{ errors["evidence"] }}</p>{% endif %}
+      </div>
     </div>
     <button class="btn-primary" type="submit">Publish and match</button>
   </form>

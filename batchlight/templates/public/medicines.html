@@ -6,8 +6,8 @@
   <div class="container-page grid gap-10 py-12 md:grid-cols-5 md:py-16">
     <div class="md:col-span-3">
       <p class="text-sm font-semibold uppercase tracking-widest text-beam-300">Batchlight · medicine safety alerts, batch by batch</p>
-      <h1 class="mt-3 text-3xl font-bold leading-tight text-white sm:text-5xl">Know when the medicine on your shelf has been flagged.</h1>
-      <p class="mt-4 max-w-xl text-lg text-ink-200">Regulators publish recalls and falsified-medicine alerts every week, one website at a time. Batchlight gathers them into one place, matches them to the batches you hold, and helps you act.</p>
+      <h1 class="mt-3 text-3xl font-bold leading-tight text-white sm:text-5xl">Know when a medicine on your shelf is named in a US, UK, Canadian or WHO safety alert.</h1>
+      <p class="mt-4 max-w-xl text-lg text-ink-200">Regulators publish recalls and falsified-medicine alerts every week, one website at a time. Batchlight gathers alerts from the US FDA, UK MHRA, Health Canada and WHO into one place, adds a few Indian alerts by hand, matches them to the batches you hold, and helps you act. India's CDSCO monthly lists of failed medicine samples are not included yet.</p>
       <div class="mt-6 flex flex-wrap gap-3">
         <a href="/signup" class="btn-beam">Watch my stock for free</a>
         <a href="/about" class="btn border border-ink-600 text-white hover:bg-ink-800">How it works</a>
@@ -19,8 +19,8 @@
         <p class="mt-1 text-sm text-ink-500">No account needed. The batch number is printed on the pack, often as “Lot”, “Batch” or “B.No”.</p>
         <div class="mt-4 space-y-3">
           <div><label for="hb" class="label">Batch or lot number</label><input id="hb" name="batch" class="input font-mono" placeholder="e.g. 7717825A" autocomplete="off"></div>
-          <div><label for="hp" class="label">Medicine name <span class="font-normal text-ink-400">(recommended)</span></label><input id="hp" name="product" class="input" placeholder="e.g. Cinacalcet 30 mg"></div>
-          <button class="btn-primary w-full" type="submit">Check against {{ alert_stats.alerts_total|int }} alerts</button>
+          <div><label for="hp" class="label">Medicine name <span class="font-normal text-ink-500">(strongly recommended)</span></label><input id="hp" name="product" class="input" placeholder="e.g. Cinacalcet 30 mg"></div>
+          <button class="btn-primary w-full" type="submit">Check this batch</button>
         </div>
       </form>
     </div>
@@ -28,10 +28,10 @@
 </section>
 
 <section class="container-page -mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-  <div class="stat"><p class="stat-value">{{ alert_stats.alerts_total|int }}</p><p class="stat-label">safety alerts from {{ alert_stats.regulators }} regulators</p></div>
-  <div class="stat"><p class="stat-value">{{ alert_stats.batches_total|int }}</p><p class="stat-label">affected batch numbers you can check</p></div>
-  <div class="stat"><p class="stat-value">{{ alert_stats.batch_share|pct }}</p><p class="stat-label">of alerts identify specific batches</p></div>
-  <div class="stat"><p class="stat-value">{{ sources|selectattr("source.automated")|list|length }}</p><p class="stat-label">regulator feeds refreshed automatically</p></div>
+  <div class="stat"><p class="stat-value">{{ alert_stats.alerts_total|int }}</p><p class="stat-label">alerts from the US FDA, UK MHRA, Health Canada and WHO, and a few added by our team (medicines and medical devices)</p></div>
+  <div class="stat"><p class="stat-value">{{ alert_stats.batches_total|int }}</p><p class="stat-label">batch and serial numbers you can check (most are US medical device serial numbers)</p></div>
+  <div class="stat"><p class="stat-value">{{ alert_stats.batch_share|pct }}</p><p class="stat-label">of alerts identify specific batches (mostly US device recalls)</p></div>
+  <div class="stat"><p class="stat-value">{{ sources|selectattr("source.automated")|list|length }}</p><p class="stat-label">sources refreshed automatically</p></div>
 </section>
 
 <section class="container-page mt-12 grid gap-8 lg:grid-cols-3">
@@ -49,13 +49,13 @@
   <aside class="space-y-4">
     <div class="card card-pad">
       <h2 class="font-bold">Why this matters</h2>
-      <p class="mt-2 text-sm text-ink-600">In low- and middle-income countries, roughly one medical product in ten is substandard or falsified. Contaminated cough syrups killed children in several countries between 2022 and 2025. Alerts exist, but they rarely reach the pharmacy shelf or the family medicine cabinet in time.</p>
+      <p class="mt-2 text-sm text-ink-600">In 2025-26, State and UT drug controllers reported testing about 1.4 lakh medicine samples in India: 3,012 were declared Not of Standard Quality and 283 spurious or adulterated (<a href="https://sansad.in/getFile/lsapps/loksabhaquestions/annex/188/AU2186_7bn9iE.pdf?source=lsapps" rel="noopener noreferrer" target="_blank">Health Ministry answer in Parliament</a>). Inspectors pick these samples during inspections and market checks, so the numbers do not show what share of all medicines is bad. Contaminated cough syrups killed children in several countries between 2022 and 2025. Alerts exist, but they rarely reach the pharmacy shelf or the family medicine cabinet in time.</p>
     </div>
     <div class="card card-pad">
       <h2 class="font-bold">For pharmacies, clinics and families</h2>
       <ol class="mt-3 space-y-3 text-sm text-ink-700">
         <li><span class="font-semibold">1. List what you hold.</span> Add items by hand or import a spreadsheet, with batch numbers.</li>
-        <li><span class="font-semibold">2. Get matched.</span> When any regulator flags one of your batches, you're told, with the evidence.</li>
+        <li><span class="font-semibold">2. Get matched.</span> When an alert from the US FDA, UK MHRA, Health Canada or WHO, or an Indian alert added by our team, names one of your batches, you're told, with the evidence. Not included yet: India's CDSCO monthly drug alerts and state drug controllers' notices.</li>
         <li><span class="font-semibold">3. Act and record.</span> Quarantine or return the stock and record it, so your team and inspectors can see what was done.</li>
       </ol>
       <a href="/signup" class="btn-primary mt-4 w-full">Create a free workspace</a>

@@ -23,7 +23,9 @@ def main(argv: list[str] | None = None) -> int:
     curator.add_argument("email")
     curator.add_argument("--revoke", action="store_true")
     sub.add_parser("rescore", help="re-apply the current matching rules to open matches")
-    sub.add_parser("seed-food-india", help="load curated India food regulatory actions (idempotent)")
+    sub.add_parser(
+        "seed-india", aliases=["seed-food-india"], help="load the hand-checked Indian medicine and food alerts (idempotent)"
+    )
     ingest = sub.add_parser("ingest", help="run ingestion once")
     ingest.add_argument("--source", action="append")
     args = parser.parse_args(argv)
@@ -38,12 +40,12 @@ def main(argv: list[str] | None = None) -> int:
             user.is_curator = not args.revoke
             print(f"{user.email} is {'no longer ' if args.revoke else ''}a curator")
         return 0
-    if args.command == "seed-food-india":
-        from .food.seed import seed_india_food_actions
+    if args.command in ("seed-india", "seed-food-india"):
+        from .services.india_seed import seed_india_alerts
 
         with session_scope() as session:
-            created, updated = seed_india_food_actions(session)
-        print(f"India food actions: {created} created, {updated} updated")
+            created, updated, matched = seed_india_alerts(session)
+        print(f"Indian alerts: {created} created, {updated} updated, {matched} new stock matches")
         return 0
     if args.command == "rescore":
         from .matching import rescore_open_matches

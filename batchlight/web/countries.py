@@ -66,6 +66,7 @@ COUNTRIES = [
     ("GY", "Guyana"),
     ("HT", "Haiti"),
     ("HN", "Honduras"),
+    ("HK", "Hong Kong"),
     ("HU", "Hungary"),
     ("IS", "Iceland"),
     ("IN", "India"),

@@ -57,7 +57,7 @@ Scale: 1 (weak) to 10 (exceptional). *Feasibility* means a working web MVP on re
 | False reassurance ("no alert found" read as "safe") | Every negative result states which sources were searched and when, and says that absence of an alert is not proof of quality. |
 | False alarms from short batch codes colliding across products | A batch match counts only with corroborating product evidence (name, ingredient, manufacturer or NDC). Users can mark false matches, which is tracked as a quality metric. |
 | Alerts only available as PDFs or images (CDSCO, NAFDAC, many WHO alerts) | A curator workflow and CSV import bring these in with source links. Automated PDF extraction is on the roadmap. |
-| Patients stopping essential medicines in panic | Patient-facing guidance always says to keep taking the medicine and speak to a pharmacist or doctor unless the alert says otherwise. |
+| Patients stopping essential medicines in panic, or using a contaminated one | Patient-facing guidance says to follow the advice in the original notice (which, for contaminated or fake products, may be not to use it at all, and to see a doctor if someone has taken it), and not to stop a medicine they need without speaking to a pharmacist or doctor. |
 | Liability | The product relays official alerts with links to the source and gives no clinical advice. |
 
 ## Runners-up and why not first

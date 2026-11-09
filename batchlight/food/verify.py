@@ -167,10 +167,15 @@ def check_fssai_licence(value: str) -> LicenceResult:
             number,
             False,
             f"FSSAI licence and registration numbers have 14 digits. This has {len(number)}. "
-            "A number with the wrong length is a warning sign: report the product if it looks suspicious.",
+            "Check you copied all 14 digits. If the number printed on the pack really has a different length, "
+            "that is worth reporting.",
         )
     return LicenceResult(
-        value, number, True, "The number has the right format. Only FSSAI can confirm it is real and whose it is."
+        value,
+        number,
+        True,
+        "The number has the right format. That does not show it is real: only FSSAI's FoSCoS search can show whose "
+        "licence it is.",
     )
 
 
