@@ -479,7 +479,7 @@ class InfraProject(Base):
     promised_completion_on: Mapped[date | None] = mapped_column(Date)
     promised_basis: Mapped[str | None] = mapped_column(String(20))  # "source" or "calculated"
     actual_completion_on: Mapped[date | None] = mapped_column(Date)
-    status: Mapped[str | None] = mapped_column(String(50))
+    status: Mapped[str | None] = mapped_column(String(200))
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     tender_url: Mapped[str | None] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
