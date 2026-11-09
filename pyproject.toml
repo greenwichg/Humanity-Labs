@@ -1,0 +1,24 @@
+[project]
+name = "batchlight"
+version = "0.1.0"
+description = "Batch-level medicine safety alerts that reach the shelf and the patient."
+readme = "README.md"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 130
+
+target-version = "py312"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S"]
+ignore = ["E501", "B008", "S101", "S311", "S603", "S607", "B904", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]

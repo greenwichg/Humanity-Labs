@@ -1,0 +1,77 @@
+{% macro severity(value) -%}
+<span class="sev-{{ value }}">{{ SEVERITY_LABELS.get(value, value)|e }}</span>
+{%- endmacro %}
+
+{% macro alert_type(value) -%}
+<span class="tag">{{ TYPE_LABELS.get(value, value)|e }}</span>
+{%- endmacro %}
+
+{% macro field(name, label, form={}, errors={}, type="text", hint=None, required=False, placeholder="", autocomplete=None, attrs="") -%}
+<div>
+  <label for="f-{{ name }}" class="label">{{ label }}{% if not required %} <span class="font-normal text-ink-400">(optional)</span>{% endif %}</label>
+  <input id="f-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ form.get(name, '') if type != 'password' else '' }}"
+         class="input {% if errors.get(name) %}input-error{% endif %}" {% if required %}required{% endif %}
+         {% if placeholder %}placeholder="{{ placeholder }}"{% endif %} {% if autocomplete %}autocomplete="{{ autocomplete }}"{% endif %}
+         {% if hint or errors.get(name) %}aria-describedby="{% if hint %}h-{{ name }}{% endif %} {% if errors.get(name) %}e-{{ name }}{% endif %}"{% endif %}
+         {% if errors.get(name) %}aria-invalid="true"{% endif %} {{ attrs|safe }}>
+  {% if hint %}<p id="h-{{ name }}" class="hint">{{ hint }}</p>{% endif %}
+  {% if errors.get(name) %}<p id="e-{{ name }}" class="field-error">{{ errors[name] }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro textarea(name, label, form={}, errors={}, hint=None, required=False, rows=3, placeholder="") -%}
+<div>
+  <label for="f-{{ name }}" class="label">{{ label }}{% if not required %} <span class="font-normal text-ink-400">(optional)</span>{% endif %}</label>
+  <textarea id="f-{{ name }}" name="{{ name }}" rows="{{ rows }}" class="input {% if errors.get(name) %}input-error{% endif %}" {% if required %}required{% endif %} {% if placeholder %}placeholder="{{ placeholder }}"{% endif %} {% if errors.get(name) %}aria-invalid="true" aria-describedby="e-{{ name }}"{% endif %}>{{ form.get(name, '') }}</textarea>
+  {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
+  {% if errors.get(name) %}<p id="e-{{ name }}" class="field-error">{{ errors[name] }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro select(name, label, options, selected="", errors={}, required=True, hint=None) -%}
+<div>
+  <label for="f-{{ name }}" class="label">{{ label }}</label>
+  <select id="f-{{ name }}" name="{{ name }}" class="input {% if errors.get(name) %}input-error{% endif %}" {% if required %}required{% endif %} {% if errors.get(name) %}aria-invalid="true"{% endif %}>
+    {% if not required %}<option value="">—</option>{% endif %}
+    {% for value, text in options %}<option value="{{ value }}" {% if value == selected %}selected{% endif %}>{{ text }}</option>{% endfor %}
+  </select>
+  {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
+  {% if errors.get(name) %}<p class="field-error">{{ errors[name] }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro csrf() -%}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{%- endmacro %}
+
+{% macro pagination(page, pages) -%}
+{% if pages > 1 %}
+<nav aria-label="Pagination" class="mt-6 flex items-center justify-between text-sm">
+  {% if page > 1 %}<a class="btn-secondary btn-sm" href="{{ query(request, page=page - 1) }}" rel="prev">Previous</a>{% else %}<span></span>{% endif %}
+  <span class="text-ink-500">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn-secondary btn-sm" href="{{ query(request, page=page + 1) }}" rel="next">Next</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
+{%- endmacro %}
+
+{% macro alert_row(alert) -%}
+<li class="card stripe-{{ alert.severity }} overflow-hidden">
+  <a href="/alerts/{{ alert.id }}" class="block p-4 no-underline hover:bg-ink-50 sm:p-5">
+    <div class="flex flex-wrap items-center gap-2">
+      {{ severity(alert.severity) }} {{ alert_type(alert.alert_type) }}
+      <span class="text-xs text-ink-500">{{ alert.country_code|flag }} {{ alert.regulator }} · {{ alert.published_at|date }}</span>
+    </div>
+    <p class="mt-2 font-semibold text-ink-950">{{ alert.title }}</p>
+    <p class="mt-1 text-sm text-ink-600">
+      {% if alert.manufacturer %}{{ alert.manufacturer }} · {% endif %}
+      {% if alert.all_lots %}All batches{% elif alert.lot_count %}{{ alert.lot_count|int }} batch{{ "es" if alert.lot_count != 1 }} listed{% else %}Batches: see source notice{% endif %}
+    </p>
+  </a>
+</li>
+{%- endmacro %}
+
+{% macro empty(title, text) -%}
+<div class="card card-pad text-center">
+  <p class="font-semibold text-ink-900">{{ title }}</p>
+  <p class="mt-1 text-sm text-ink-500">{{ text }}</p>
+  {{ caller() if caller }}
+</div>
+{%- endmacro %}

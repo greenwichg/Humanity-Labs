@@ -1,0 +1,32 @@
+{% extends "app/_layout.html" %}
+{% from "macros.html" import csrf with context %}
+{% block title %}Import inventory{% endblock %}
+{% block content %}
+<nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/app/inventory">Inventory</a></nav>
+<h1 class="mt-2 text-2xl font-bold">Import from a spreadsheet</h1>
+<p class="mt-2 max-w-2xl text-ink-600">Upload a CSV file exported from your pharmacy system or spreadsheet. Only <code>product_name</code> is required; include <code>batch</code> wherever you can. Common column names such as “Lot”, “Batch number”, “Expiry” and “Qty” are recognised.</p>
+
+{% if report %}
+<div role="status" class="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
+  <p class="font-semibold">Imported {{ report.created }} item{{ "s" if report.created != 1 }}.</p>
+  <ul class="mt-1 text-sm">
+    {% if report.duplicates %}<li>{{ report.duplicates }} row{{ "s were" if report.duplicates != 1 else " was" }} already in your list and skipped.</li>{% endif %}
+    <li>{% if report.matches %}<strong>{{ report.matches }} match{{ "es" if report.matches != 1 }} with existing alerts.</strong> <a href="/app/matches">Review them now</a>.{% else %}None of the imported items match a current alert.{% endif %}</li>
+  </ul>
+</div>
+{% endif %}
+{% if errors %}
+<div role="alert" class="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
+  <p class="font-semibold">Nothing was imported. Fix these problems and upload the file again:</p>
+  <ul class="mt-2 list-disc space-y-1 pl-5 text-sm">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  {% if more_errors %}<p class="mt-2 text-sm">…and {{ more_errors }} more.</p>{% endif %}
+</div>
+{% endif %}
+
+<form method="post" action="/app/inventory/import" enctype="multipart/form-data" class="card card-pad mt-6 max-w-2xl space-y-4">
+  {{ csrf() }}
+  <div><label for="file" class="label">CSV file (up to 5,000 rows, 2 MB)</label>
+    <input id="file" name="file" type="file" accept=".csv,text/csv" required class="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-ink-800 file:px-4 file:py-2 file:font-semibold file:text-white"></div>
+  <div class="flex flex-wrap gap-2"><button class="btn-primary" type="submit">Import and check</button><a href="/app/inventory/template.csv" class="btn-secondary">Download template</a></div>
+</form>
+{% endblock %}

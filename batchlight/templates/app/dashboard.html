@@ -1,0 +1,57 @@
+{% extends "app/_layout.html" %}
+{% from "macros.html" import severity with context %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-end justify-between gap-3">
+  <div><h1 class="text-2xl font-bold">{{ auth.org.name }}</h1><p class="text-ink-600">Batchlight is watching {{ holdings|int }} item{{ "s" if holdings != 1 }} against every alert.</p></div>
+  <div class="flex gap-2"><a href="/app/inventory/new" class="btn-primary">Add item</a><a href="/app/inventory/import" class="btn-secondary">Import CSV</a></div>
+</div>
+
+{% if open_count %}
+<section class="mt-6 rounded-xl border border-red-200 bg-white">
+  <div class="flex items-center justify-between border-b border-red-100 bg-red-50 px-5 py-3 rounded-t-xl">
+    <h2 class="font-bold text-red-900">{{ open_count }} match{{ "es" if open_count != 1 }} need{{ "" if open_count != 1 else "s" }} action</h2>
+    <a href="/app/matches" class="text-sm text-red-900">See all</a>
+  </div>
+  <ul class="divide-y divide-ink-50">
+    {% for m in open_matches %}
+    <li><a href="/app/matches/{{ m.id }}" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 no-underline hover:bg-ink-50">
+      {{ severity(m.alert.severity) }}
+      <span class="font-semibold text-ink-950">{{ m.holding.product_name }}</span>
+      {% if m.holding.lot %}<span class="font-mono text-sm text-ink-600">batch {{ m.holding.lot }}</span>{% endif %}
+      <span class="w-full text-sm text-ink-600 sm:w-auto sm:flex-1 sm:truncate">{{ m.alert.title }}</span>
+      <span class="text-xs text-ink-500">{{ "Batch match" if m.level == "batch" else "Check batch" }} · {{ m.created_at|ago }}</span>
+    </a></li>
+    {% endfor %}
+  </ul>
+</section>
+{% elif holdings %}
+<section class="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950">
+  <p class="font-semibold">No open matches. Nothing you hold is affected by a current alert.</p>
+  <p class="mt-1 text-sm">New alerts are checked against your list automatically, and you'll be notified if anything matches.</p>
+</section>
+{% else %}
+<section class="card card-pad mt-6">
+  <h2 class="text-lg font-bold">Start by adding what you hold</h2>
+  <p class="mt-1 text-ink-600">Add medicines one by one, or import a spreadsheet of your stock. Include batch numbers where you can: they make matches precise.</p>
+  <div class="mt-4 flex flex-wrap gap-2"><a href="/app/inventory/new" class="btn-primary">Add an item</a><a href="/app/inventory/import" class="btn-secondary">Import a CSV file</a></div>
+</section>
+{% endif %}
+
+{% if without_batch %}
+<p class="mt-4 rounded-lg bg-beam-50 px-4 py-3 text-sm text-ink-800 ring-1 ring-beam-200">{{ without_batch }} item{{ "s have" if without_batch != 1 else " has" }} no batch number. Batchlight can only give product-level warnings for {{ "them" if without_batch != 1 else "it" }}. <a href="/app/inventory">Add batch numbers</a></p>
+{% endif %}
+
+<h2 class="mt-8 text-lg font-bold">Your outcomes</h2>
+<div class="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+  <div class="stat"><p class="stat-value">{{ stats.matches_total|int }}</p><p class="stat-label">matches found</p></div>
+  <div class="stat"><p class="stat-value">{{ stats.matches_resolved|int }}</p><p class="stat-label">acted on and recorded</p></div>
+  <div class="stat"><p class="stat-value">{{ stats.median_hours_to_action|hours }}</p><p class="stat-label">median time to action</p></div>
+  <div class="stat"><p class="stat-value">{{ stats.units_removed|int }}</p><p class="stat-label">units removed from use</p></div>
+</div>
+
+<h2 class="mt-8 text-lg font-bold">Sources watching your stock</h2>
+<ul class="mt-3 grid gap-2 sm:grid-cols-2">
+  {% for row in sources %}<li class="card px-4 py-3 text-sm"><span class="font-medium">{{ row.source.country_code|flag }} {{ row.source.name }}</span><span class="block text-ink-500">{{ row.alerts|int }} alerts · {% if row.source.automated %}refreshed {{ row.source.last_success_at|ago }}{% else %}curated{% endif %}</span></li>{% endfor %}
+</ul>
+{% endblock %}

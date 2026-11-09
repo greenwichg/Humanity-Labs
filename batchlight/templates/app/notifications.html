@@ -1,0 +1,25 @@
+{% extends "app/_layout.html" %}
+{% from "macros.html" import csrf with context %}
+{% block title %}Notifications{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-end justify-between gap-3">
+  <h1 class="text-2xl font-bold">Notifications</h1>
+  {% if unread %}<form method="post" action="/app/notifications/read-all">{{ csrf() }}<button class="btn-secondary btn-sm" type="submit">Mark all as read</button></form>{% endif %}
+</div>
+{% if notifications %}
+<ul class="card mt-4 divide-y divide-ink-50">
+  {% for n in notifications %}
+  <li class="flex gap-3 px-5 py-3 {% if not n.read_at %}bg-beam-50/60{% endif %}">
+    <span class="mt-1.5 h-2 w-2 flex-none rounded-full {{ 'bg-beam-500' if not n.read_at else 'bg-transparent' }}" aria-hidden="true"></span>
+    <div class="min-w-0">
+      <p class="font-semibold text-ink-950">{% if n.match_id %}<a href="/app/matches/{{ n.match_id }}">{{ n.title }}</a>{% else %}{{ n.title }}{% endif %}{% if not n.read_at %}<span class="sr-only"> (unread)</span>{% endif %}</p>
+      <p class="text-sm text-ink-600">{{ n.body }}</p>
+      <p class="text-xs text-ink-400">{{ n.created_at|ago }}</p>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="card card-pad mt-4 text-center text-ink-600">No notifications yet. You'll be notified here when a new alert matches something you hold.</div>
+{% endif %}
+{% endblock %}

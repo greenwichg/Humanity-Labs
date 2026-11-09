@@ -1,0 +1,13 @@
+{
+  "name": "batchlight-ui",
+  "private": true,
+  "description": "Builds Batchlight's stylesheet. The app itself is Python; see README.md.",
+  "scripts": {
+    "build:css": "tailwindcss -i frontend/app.css -o batchlight/static/app.css --minify",
+    "watch:css": "tailwindcss -i frontend/app.css -o batchlight/static/app.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.3.3",
+    "tailwindcss": "4.3.3"
+  }
+}

@@ -1,0 +1,142 @@
+@import "tailwindcss";
+@source "../batchlight/templates";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
+  --color-ink-50: #f4f7fb;
+  --color-ink-100: #e6edf5;
+  --color-ink-200: #cbd8e7;
+  --color-ink-300: #a0b6cf;
+  --color-ink-400: #6f8bab;
+  --color-ink-500: #4c6a8c;
+  --color-ink-600: #385271;
+  --color-ink-700: #2b405b;
+  --color-ink-800: #1d2e44;
+  --color-ink-900: #13202f;
+  --color-ink-950: #0b141e;
+  --color-beam-50: #fff8eb;
+  --color-beam-100: #feeac7;
+  --color-beam-200: #fdd48a;
+  --color-beam-300: #fbb84d;
+  --color-beam-400: #f9a024;
+  --color-beam-500: #f07f0b;
+  --color-beam-600: #d45c06;
+  --color-beam-700: #b03f09;
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body { @apply bg-ink-50 text-ink-900 antialiased; }
+  a { @apply text-ink-700 underline decoration-ink-300 underline-offset-2 hover:decoration-ink-700; }
+  :focus-visible { @apply outline-2 outline-offset-2 outline-beam-500; }
+  h1, h2, h3 { @apply text-ink-950 tracking-tight; }
+  code, .mono { @apply font-mono; }
+}
+
+@utility container-page {
+  @apply mx-auto w-full max-w-6xl px-4 sm:px-6;
+}
+@utility card {
+  @apply rounded-xl border border-ink-100 bg-white shadow-sm;
+}
+@utility card-pad {
+  @apply p-5 sm:p-6;
+}
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold no-underline transition-colors disabled:opacity-60;
+}
+@utility btn-primary {
+  @apply btn bg-ink-800 text-white hover:bg-ink-900;
+}
+@utility btn-beam {
+  @apply btn bg-beam-400 text-ink-950 hover:bg-beam-300;
+}
+@utility btn-secondary {
+  @apply btn border border-ink-200 bg-white text-ink-800 hover:bg-ink-50;
+}
+@utility btn-danger {
+  @apply btn border border-red-200 bg-white text-red-700 hover:bg-red-50;
+}
+@utility btn-sm {
+  @apply px-3 py-1.5 text-xs;
+}
+@utility label {
+  @apply mb-1 block text-sm font-medium text-ink-800;
+}
+@utility hint {
+  @apply mt-1 text-xs text-ink-500;
+}
+@utility input {
+  @apply block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder:text-ink-300 focus:border-ink-500 focus:outline-none focus:ring-2 focus:ring-beam-200;
+}
+@utility input-error {
+  @apply border-red-400 focus:border-red-500 focus:ring-red-100;
+}
+@utility field-error {
+  @apply mt-1 text-xs font-medium text-red-700;
+}
+@utility badge {
+  @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap;
+}
+@utility sev-critical {
+  @apply badge bg-red-100 text-red-800 ring-1 ring-red-200;
+}
+@utility sev-high {
+  @apply badge bg-orange-100 text-orange-800 ring-1 ring-orange-200;
+}
+@utility sev-moderate {
+  @apply badge bg-amber-100 text-amber-800 ring-1 ring-amber-200;
+}
+@utility sev-low {
+  @apply badge bg-sky-100 text-sky-800 ring-1 ring-sky-200;
+}
+@utility sev-info {
+  @apply badge bg-ink-100 text-ink-700 ring-1 ring-ink-200;
+}
+@utility tag {
+  @apply badge bg-ink-100 text-ink-700;
+}
+@utility stripe-critical {
+  @apply border-l-4 border-l-red-500;
+}
+@utility stripe-high {
+  @apply border-l-4 border-l-orange-500;
+}
+@utility stripe-moderate {
+  @apply border-l-4 border-l-amber-400;
+}
+@utility stripe-low {
+  @apply border-l-4 border-l-sky-500;
+}
+@utility stripe-info {
+  @apply border-l-4 border-l-ink-300;
+}
+@utility table {
+  @apply w-full text-left text-sm;
+  & th { @apply border-b border-ink-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-ink-500; }
+  & td { @apply border-b border-ink-50 px-3 py-3 align-top; }
+}
+@utility nav-link {
+  @apply rounded-md px-3 py-2 text-sm font-medium text-ink-100 no-underline hover:bg-ink-800 hover:text-white;
+}
+@utility nav-link-active {
+  @apply bg-ink-800 text-white;
+}
+@utility side-link {
+  @apply flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-ink-700 no-underline hover:bg-ink-100;
+}
+@utility side-link-active {
+  @apply bg-white text-ink-950 shadow-sm ring-1 ring-ink-100;
+}
+@utility stat {
+  @apply card card-pad;
+}
+@utility stat-value {
+  @apply text-2xl font-bold text-ink-950 sm:text-3xl;
+}
+@utility stat-label {
+  @apply mt-1 text-sm text-ink-500;
+}
+@utility prose-alert {
+  & p { @apply mb-3; }
+}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf with context %}
+{% block title %}Import alerts{% endblock %}
+{% block body %}
+<div class="container-page max-w-3xl py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/admin">Curator console</a></nav>
+  <h1 class="mt-2 text-2xl font-bold">Import curated alerts</h1>
+  <p class="mt-1 text-ink-600">Columns: <code class="text-xs">{{ columns|join(", ") }}</code>. Separate several batches with semicolons; put an expiry after a comma. Re-importing a row with the same <code>external_id</code> updates it instead of duplicating it.</p>
+  {% if result %}<div role="status" class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950"><p class="font-semibold">Published {{ result.alerts }} alert{{ "s" if result.alerts != 1 }}, matching {{ result.matched }} stock item{{ "s" if result.matched != 1 }}.</p></div>{% endif %}
+  {% if errors %}<div role="alert" class="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-red-900"><p class="font-semibold">Nothing was imported.</p><ul class="mt-2 list-disc pl-5 text-sm">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
+  <form method="post" action="/admin/alerts/import" enctype="multipart/form-data" class="card card-pad mt-6 space-y-4">
+    {{ csrf() }}
+    <div><label for="af" class="label">CSV file</label><input id="af" name="file" type="file" accept=".csv,text/csv" required class="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-ink-800 file:px-4 file:py-2 file:font-semibold file:text-white"></div>
+    <div class="flex gap-2"><button class="btn-primary" type="submit">Import and match</button><a href="/admin/alerts/template.csv" class="btn-secondary">Download template</a></div>
+  </form>
+</div>
+{% endblock %}

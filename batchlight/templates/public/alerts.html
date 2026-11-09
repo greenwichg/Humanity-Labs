@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "macros.html" import alert_row, pagination with context %}
+{% block title %}Alerts{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-bold sm:text-3xl">Medicine safety alerts</h1>
+      <p class="mt-1 text-ink-600">{{ page.total|int }} alert{{ "s" if page.total != 1 }}{% if q %} matching “{{ q }}”{% endif %}, newest first.</p>
+    </div>
+  </div>
+  <form method="get" class="card card-pad mt-6 grid gap-3 md:grid-cols-5 md:items-end" role="search">
+    <div class="md:col-span-2"><label for="a-q" class="label">Search</label><input id="a-q" name="q" value="{{ q }}" class="input" placeholder="Product, manufacturer, reason or batch number"></div>
+    <div><label for="a-source" class="label">Source</label>
+      <select id="a-source" name="source" class="input"><option value="">All sources</option>{% for s in sources %}<option value="{{ s.id }}" {% if s.id == source %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></div>
+    <div><label for="a-sev" class="label">Severity</label>
+      <select id="a-sev" name="severity" class="input"><option value="">Any</option>{% for key, label in SEVERITY_LABELS.items() %}<option value="{{ key }}" {% if key == severity %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="flex gap-2">
+      <div class="flex-1"><label for="a-type" class="label">Type</label>
+        <select id="a-type" name="type" class="input"><option value="">Any</option>{% for key, label in TYPE_LABELS.items() %}<option value="{{ key }}" {% if key == type %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+      <button class="btn-primary self-end" type="submit">Filter</button>
+    </div>
+  </form>
+  {% if page.items %}
+  <ul class="mt-6 space-y-3">{% for alert in page.items %}{{ alert_row(alert) }}{% endfor %}</ul>
+  {{ pagination(page.page, page.pages) }}
+  {% else %}
+  <div class="card card-pad mt-6 text-center text-ink-600">No alerts match these filters.</div>
+  {% endif %}
+</div>
+{% endblock %}

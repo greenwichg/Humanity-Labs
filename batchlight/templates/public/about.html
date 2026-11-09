@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}How Batchlight works{% endblock %}
+{% block body %}
+<div class="container-page max-w-3xl py-10">
+  <h1 class="text-3xl font-bold">How Batchlight works</h1>
+  <div class="mt-6 space-y-6 text-ink-700">
+    <p class="text-lg">Every week, regulators find medicine and device batches that are contaminated, sub-potent, mislabelled, non-sterile or fake. Their alerts are published on separate websites, in different formats, and mostly reach distributors rather than the shelves and homes where the products end up. Batchlight closes that gap.</p>
+    <section><h2 class="text-xl font-bold">1. Gather</h2><p class="mt-2">Batchlight reads alerts from the US FDA, the UK MHRA, Health Canada and the WHO automatically, and curators add alerts from regulators that publish only PDFs. Every alert is normalised into one format, and batch numbers are extracted from text and tables.</p></section>
+    <section><h2 class="text-xl font-bold">2. Match</h2><p class="mt-2">Pharmacies, clinics, distributors and families list what they hold. When a new alert arrives, Batchlight compares its batches and product details with every list. A batch number alone is never enough, because unrelated products can share a code: the product name, ingredient, manufacturer or product code must agree too. Each match shows the reasons, so you can check them.</p></section>
+    <section><h2 class="text-xl font-bold">3. Act and record</h2><p class="mt-2">You are notified in the app and by email. Check your shelf, take the action the regulator asks for, and record what you did. Batchlight measures how quickly affected stock is dealt with, which is the outcome that matters.</p></section>
+    <section><h2 class="text-xl font-bold">What Batchlight is not</h2><p class="mt-2">It is not medical advice and not a substitute for your regulator's instructions. “No alert found” does not prove that a product is genuine or of good quality. If a pack looks suspicious, report it to your national medicines regulator.</p></section>
+    <section><h2 class="text-xl font-bold">Privacy</h2><p class="mt-2">Batchlight stores products and batch numbers, not patients. It never asks for diagnoses and never sells data. API keys and session tokens are stored only as one-way hashes.</p></section>
+    <div class="flex flex-wrap gap-3"><a href="/signup" class="btn-primary">Create a free workspace</a><a href="/check" class="btn-secondary">Check a batch</a></div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Data sources{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <h1 class="text-2xl font-bold sm:text-3xl">Data sources</h1>
+  <p class="mt-2 max-w-3xl text-ink-600">Batchlight reads public alerts from these regulators. Automated sources are refreshed on a schedule. Regulators that publish only PDF or image notices are entered by curators, with a link to the original notice.</p>
+  <div class="mt-6 grid gap-4 md:grid-cols-2">
+    {% for row in sources %}{% set s = row.source %}
+    <div class="card card-pad">
+      <div class="flex items-start justify-between gap-3">
+        <div><p class="font-semibold text-ink-950">{{ s.country_code|flag }} {{ s.name }}</p><p class="text-sm text-ink-500">{{ s.regulator }}</p></div>
+        {% if s.automated %}<span class="badge {% if s.last_error %}bg-red-100 text-red-800{% else %}bg-emerald-100 text-emerald-800{% endif %}">{% if s.last_error %}Last refresh failed{% else %}Automated{% endif %}</span>{% else %}<span class="tag">Curated</span>{% endif %}
+      </div>
+      <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div><dt class="text-ink-500">Alerts held</dt><dd class="font-semibold">{{ row.alerts|int }}</dd></div>
+        <div><dt class="text-ink-500">Last successful refresh</dt><dd class="font-semibold">{{ s.last_success_at|datetime if s.automated else "Not applicable" }}</dd></div>
+      </dl>
+      <a href="{{ s.homepage_url }}" class="mt-3 inline-block text-sm" rel="noopener noreferrer" target="_blank">Regulator's page</a>
+    </div>
+    {% endfor %}
+  </div>
+  <section class="card card-pad mt-8 text-sm text-ink-700">
+    <h2 class="font-bold text-ink-950">Licences</h2>
+    <p class="mt-2">openFDA data is in the public domain. GOV.UK content is published under the Open Government Licence v3.0. Health Canada data is published under the Open Government Licence – Canada. WHO alerts are summarised with a link to the original notice on who.int.</p>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "auth/_layout.html" %}
+{% from "macros.html" import csrf, field, select with context %}
+{% block title %}New workspace{% endblock %}
+{% block card %}
+<h1 class="text-2xl font-bold">Create a workspace</h1>
+<p class="mt-1 text-sm text-ink-500">A workspace holds one list of medicines: a pharmacy, a clinic store, or a family's medicines.</p>
+<form method="post" action="/app/workspaces" class="mt-5 space-y-4" novalidate>
+  {{ csrf() }}
+  {{ field("name", "Workspace name", form, errors, required=True) }}
+  <div><label for="nw-kind" class="label">This workspace is for a</label>
+    <select id="nw-kind" name="kind" class="input">{% for k in kinds %}<option value="{{ k }}" {% if form.get("kind") == k %}selected{% endif %}>{{ KIND_LABELS[k] }}</option>{% endfor %}</select></div>
+  {{ select("country_code", "Country", countries, form.get("country_code", ""), errors, required=False) }}
+  <button class="btn-primary w-full" type="submit">Create workspace</button>
+</form>
+{% endblock %}

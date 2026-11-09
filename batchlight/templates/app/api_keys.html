@@ -1,0 +1,30 @@
+{% extends "app/_layout.html" %}
+{% from "macros.html" import csrf with context %}
+{% block title %}API keys{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold">API keys</h1>
+<p class="max-w-2xl text-ink-600">Connect a pharmacy management system so stock syncs automatically and matches can be pulled and resolved. Keys belong to {{ auth.org.name }}. See the <a href="/api/docs">API documentation</a>.</p>
+{% if new_key %}
+<div role="status" class="mt-4 rounded-xl border border-beam-300 bg-beam-50 p-4">
+  <p class="font-semibold text-ink-950">Copy this key now. It won't be shown again.</p>
+  <div class="mt-2 flex gap-2"><input id="new-key" readonly value="{{ new_key }}" class="input font-mono text-xs"><button type="button" class="btn-secondary btn-sm" data-copy="new-key">Copy</button></div>
+  <pre class="mt-3 overflow-x-auto rounded-lg bg-ink-900 p-3 text-xs text-ink-100">curl -H "Authorization: Bearer {{ new_key }}" {{ request.base_url }}api/v1/matches</pre>
+</div>
+{% endif %}
+<form method="post" action="/app/api-keys" class="card card-pad mt-4 flex max-w-xl flex-wrap items-end gap-3">
+  {{ csrf() }}
+  <div class="min-w-64 flex-1"><label for="key-name" class="label">Key name</label><input id="key-name" name="name" class="input" placeholder="e.g. Point of sale sync" maxlength="100"></div>
+  <button class="btn-primary" type="submit">Create key</button>
+</form>
+{% if keys %}
+<div class="card mt-4 overflow-x-auto">
+  <table class="table">
+    <thead><tr><th scope="col">Name</th><th scope="col">Key</th><th scope="col">Created</th><th scope="col">Last used</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>{% for k in keys %}
+      <tr class="{% if k.revoked_at %}text-ink-400{% endif %}"><td>{{ k.name }}</td><td class="font-mono text-xs">bl_{{ k.prefix }}_…</td><td>{{ k.created_at|date }}</td><td>{{ k.last_used_at|ago }}</td>
+        <td class="text-right">{% if k.revoked_at %}Revoked{% else %}<form method="post" action="/app/api-keys/{{ k.id }}/revoke" data-confirm="Revoke {{ k.name }}? Systems using it will stop working.">{{ csrf() }}<button class="text-sm text-red-700 underline" type="submit">Revoke</button></form>{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

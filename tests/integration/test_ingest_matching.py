@@ -1,0 +1,148 @@
+from sqlalchemy import func, select
+
+from batchlight.models import Alert, AlertLot, IngestionRun, Match, Notification, Source
+from batchlight.services.email import OUTBOX
+from tests.conftest import post_form, signup
+
+
+def count(db, model, *where):
+    return db.scalar(select(func.count()).select_from(model).where(*where))
+
+
+def test_fda_ingest_is_idempotent_and_extracts_batches(ingest, db):
+    run = ingest("us-fda-drug")
+    assert run.status == "succeeded" and run.fetched == 25 and run.created == 25  # includes one record with no recall number
+    cinacalcet = db.scalar(select(Alert).where(Alert.external_id == "D-0079-2027"))
+    assert cinacalcet.severity == "high" and cinacalcet.alert_type == "recall"
+    assert [lot.lot_key for lot in cinacalcet.lots] == ["7717825A"]
+    assert "cinacalcet" in cinacalcet.name_tokens
+    assert "64380-883" in cinacalcet.product_codes
+    assert cinacalcet.manufacturer_key == "strides pharma"
+    argatroban = db.scalar(select(Alert).where(Alert.external_id == "D-0082-2027"))
+    assert argatroban.severity == "critical" and len(argatroban.lots) >= 10
+
+    again = ingest("us-fda-drug")
+    assert (again.created, again.updated) == (0, 0)
+    assert count(db, Alert) == 25
+
+
+def test_new_alert_matches_existing_stock_and_notifies(client, ingest, db):
+    signup(client)
+    post_form(client, "/app/inventory", {"product_name": "Cinacalcet 30mg tablets", "lot": "7717825A", "quantity": "12"})
+    post_form(client, "/app/inventory", {"product_name": "Cinacalcet 30mg tablets", "lot": "OTHER999"})
+    post_form(
+        client, "/app/inventory", {"product_name": "Paracetamol 500mg", "lot": "7717825A"}
+    )  # same batch code, other product
+    run = ingest("us-fda-drug")
+    assert run.matched == 1
+    match = db.scalar(select(Match))
+    assert match.level == "batch" and match.confidence >= 90
+    assert match.holding.lot == "7717825A" and "Cinacalcet" in match.holding.product_name
+    assert count(db, Notification, Notification.channel == "in_app") == 1
+    assert OUTBOX and "1 stock item(s) match" in OUTBOX[-1]["Subject"]
+
+    dashboard = client.get("/app")
+    assert "1 match needs action" in dashboard.text
+    detail = client.get(f"/app/matches/{match.id}")
+    assert "Batch 7717825A is listed in the alert" in detail.text
+
+
+def test_new_stock_matches_existing_alert_immediately(client, ingest, db):
+    ingest("us-fda-drug")
+    signup(client)
+    response = post_form(
+        client,
+        "/app/inventory",
+        {"product_name": "Telmisartan and Amlodipine tablets 40mg/5mg", "lot": "3228114", "manufacturer": "Mylan"},
+    )
+    assert response.headers["location"] == "/app/matches"
+    match = db.scalar(select(Match))
+    assert match is not None and match.level == "batch"
+
+
+def test_resolving_a_match_updates_outcome_metrics(client, ingest, db):
+    signup(client)
+    post_form(client, "/app/inventory", {"product_name": "Cinacalcet 30 mg", "lot": "7717825A"})
+    ingest("us-fda-drug")
+    match = db.scalar(select(Match))
+    invalid = post_form(client, f"/app/matches/{match.id}/resolve", {"outcome": "teleported", "units_affected": "lots"})
+    assert invalid.status_code == 422
+    done = post_form(
+        client, f"/app/matches/{match.id}/resolve", {"outcome": "quarantined", "units_affected": "12", "note": "Shelf B2"}
+    )
+    assert done.status_code == 303
+    db.refresh(match)
+    assert (match.status, match.outcome, match.units_affected) == ("resolved", "quarantined", 12)
+    impact = client.get("/impact")
+    assert impact.status_code == 200
+    assert ">12<" in impact.text  # units removed
+    reopened = post_form(client, f"/app/matches/{match.id}/reopen")
+    assert reopened.status_code == 303
+    db.refresh(match)
+    assert match.status == "open"
+
+
+def test_mhra_ingest_reads_batch_table(ingest, db):
+    run = ingest("uk-mhra")
+    assert run.status == "succeeded"
+    alert = db.scalar(select(Alert).where(Alert.title.like("Class 3 Medicines Recall: Aspire%")))
+    assert alert.severity == "moderate" and alert.manufacturer == "Aspire Pharma Ltd"
+    assert [lot.lot for lot in alert.lots] == ["E941A", "E941B", "E941C"]
+    assert alert.active_ingredients == ["tropicamide"]
+    assert "5060209733661" in alert.product_codes
+    # weekly digests and roundups are not alerts
+    assert count(db, Alert, Alert.title.like("Field Safety Notices%")) == 0
+    assert count(db, Alert, Alert.title.like("MHRA Safety Roundup%")) == 0
+
+
+def test_health_canada_ingest_filters_and_enriches(ingest, db):
+    run = ingest("ca-health-canada")
+    assert run.status == "succeeded"
+    alert = db.scalar(select(Alert).where(Alert.title.like("Cyclophosphamide%")))
+    assert alert.severity == "critical"  # Type I
+    assert [lot.lot for lot in alert.lots] == ["7Z10346A"]
+    assert alert.manufacturer == "Marcan Pharmaceuticals Inc"
+    assert "02560216" in alert.product_codes
+    assert count(db, Alert, Alert.raw["Organization"].astext == "TC") == 0  # transport recalls skipped
+
+
+def test_who_ingest_creates_product_level_falsified_alerts(ingest, db):
+    run = ingest("who-mpa")
+    assert run.status == "succeeded"
+    darzalex = db.scalar(select(Alert).where(Alert.title.like("%DARZALEX%")))
+    assert darzalex.alert_type == "falsified" and darzalex.severity == "critical"
+    assert darzalex.product_names == ["DARZALEX"] and darzalex.active_ingredients == ["daratumumab"]
+    assert darzalex.country_code is None
+
+
+def test_falsified_product_alert_matches_brand_stock_at_product_level(client, ingest, db):
+    signup(client)
+    post_form(client, "/app/inventory", {"product_name": "Darzalex 400mg/20ml", "lot": "AB12345"})
+    ingest("who-mpa")
+    match = db.scalar(select(Match))
+    assert match is not None and match.level == "product"
+    assert "check your batch against the source notice" in match.reasons[0]
+
+
+def test_failed_run_is_recorded(ingest, db):
+    try:
+        ingest("us-fda-drug", fail={"api.fda.gov"})
+    except Exception:  # noqa: BLE001
+        pass
+    run = db.scalar(select(IngestionRun).order_by(IngestionRun.id.desc()))
+    assert run.status == "failed" and "503" in run.error
+    source = db.get(Source, "us-fda-drug")
+    db.refresh(source)
+    assert source.last_error and source.last_success_at is None
+
+
+def test_archived_holdings_are_not_matched(client, ingest, db):
+    signup(client)
+    post_form(client, "/app/inventory", {"product_name": "Cinacalcet 30mg", "lot": "7717825A"})
+    from batchlight.models import Holding
+
+    holding = db.scalar(select(Holding))
+    post_form(client, f"/app/inventory/{holding.id}/archive")
+    ingest("us-fda-drug")
+    assert count(db, Match) == 0
+    assert count(db, AlertLot) > 0

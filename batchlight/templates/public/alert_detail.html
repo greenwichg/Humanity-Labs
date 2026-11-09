@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "macros.html" import severity, alert_type with context %}
+{% block title %}{{ alert.title[:80] }}{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/alerts">Alerts</a> / {{ alert.regulator }}</nav>
+  <div class="mt-3 flex flex-wrap items-center gap-2">{{ severity(alert.severity) }} {{ alert_type(alert.alert_type) }}{% if alert.classification %}<span class="tag">{{ alert.classification }}</span>{% endif %}{% if alert.status %}<span class="tag">{{ alert.status }}</span>{% endif %}</div>
+  <h1 class="mt-3 text-2xl font-bold sm:text-3xl">{{ alert.title }}</h1>
+  <p class="mt-2 text-ink-600">{{ alert.country_code|flag }} {{ alert.regulator }} · Published {{ alert.published_at|date }}{% if alert.initiated_at and alert.initiated_at != alert.published_at %} · Initiated {{ alert.initiated_at|date }}{% endif %}</p>
+
+  {% if own_matches %}
+  <div class="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
+    <p class="font-semibold">This alert matches {{ own_matches|length }} item{{ "s" if own_matches|length != 1 }} in {{ auth.org.name }}.</p>
+    <ul class="mt-2 space-y-1 text-sm">{% for m in own_matches %}<li><a href="/app/matches/{{ m.id }}" class="text-red-900">{{ m.holding.product_name }}{% if m.holding.lot %} · batch {{ m.holding.lot }}{% endif %}</a> ({{ "resolved" if m.status == "resolved" else "needs action" }})</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <div class="mt-6 grid gap-6 lg:grid-cols-3">
+    <div class="space-y-6 lg:col-span-2">
+      <section class="card card-pad">
+        <h2 class="font-bold">Affected batches</h2>
+        {% if lots %}
+        <p class="mt-1 text-sm text-ink-500">{{ alert.lot_count|int }} batch{{ "es" if alert.lot_count != 1 }} listed.</p>
+        <div class="mt-3 max-h-[28rem] overflow-auto"><table class="table"><thead><tr><th scope="col">Batch / lot</th><th scope="col">Expiry</th></tr></thead><tbody>
+          {% for lot, expiry in lots %}<tr><td class="font-mono font-semibold">{{ lot }}</td><td>{{ expiry or "—" }}</td></tr>{% endfor %}
+        </tbody></table></div>
+        {% if alert.lot_count > lots|length %}<p class="mt-3 text-sm text-ink-600">Showing the first {{ lots|length }} of {{ alert.lot_count|int }}. To check a specific batch or serial number, use <a href="/check">Check a batch</a>.</p>{% endif %}
+        {% elif alert.all_lots %}
+        <p class="mt-2 text-ink-700">This alert covers <strong>all batches</strong> of the product{% if alert.lots_text %}: “{{ alert.lots_text }}”{% endif %}.</p>
+        {% else %}
+        <p class="mt-2 text-ink-700">The regulator did not publish batch numbers in a form Batchlight could read. Check the <a href="{{ alert.source_url }}" rel="noopener noreferrer" target="_blank">original notice</a> for the affected batches.</p>
+        {% if alert.lots_text %}<p class="mt-2 text-sm text-ink-500">Text provided: {{ alert.lots_text }}</p>{% endif %}
+        {% endif %}
+      </section>
+      {% if alert.reason %}
+      <section class="card card-pad"><h2 class="font-bold">Reason</h2><p class="mt-2 whitespace-pre-line text-ink-700">{{ alert.reason }}</p></section>
+      {% endif %}
+      {% if alert.product_description %}
+      <section class="card card-pad"><h2 class="font-bold">Product description and notice text</h2><p class="mt-2 whitespace-pre-line text-sm text-ink-700">{{ alert.product_description[:3000] }}{% if alert.product_description|length > 3000 %}…{% endif %}</p></section>
+      {% endif %}
+      {% if alert.distribution %}
+      <section class="card card-pad"><h2 class="font-bold">Distribution</h2><p class="mt-2 text-sm text-ink-700">{{ alert.distribution }}</p></section>
+      {% endif %}
+    </div>
+    <aside class="space-y-4">
+      <div class="card card-pad text-sm">
+        <dl class="space-y-3">
+          {% if alert.product_names %}<div><dt class="font-semibold text-ink-900">Products</dt><dd class="mt-0.5 text-ink-700">{{ alert.product_names|join(", ") }}</dd></div>{% endif %}
+          {% if alert.active_ingredients %}<div><dt class="font-semibold text-ink-900">Active ingredients</dt><dd class="mt-0.5 text-ink-700">{{ alert.active_ingredients|join(", ") }}</dd></div>{% endif %}
+          {% if alert.manufacturer %}<div><dt class="font-semibold text-ink-900">Company</dt><dd class="mt-0.5"><a href="/manufacturers/{{ alert.manufacturer_key|replace(' ', '-') }}">{{ alert.manufacturer }}</a></dd></div>{% endif %}
+          {% if alert.product_codes %}<div><dt class="font-semibold text-ink-900">Product codes</dt><dd class="mt-0.5 font-mono text-ink-700">{{ alert.product_codes|join(", ") }}</dd></div>{% endif %}
+          <div><dt class="font-semibold text-ink-900">Source</dt><dd class="mt-0.5 text-ink-700">{{ alert.source.name }}</dd></div>
+        </dl>
+        <a href="{{ alert.source_url }}" class="btn-primary mt-4 w-full" rel="noopener noreferrer" target="_blank">Open the original notice</a>
+      </div>
+      <div class="rounded-xl bg-beam-50 p-4 text-sm text-ink-800 ring-1 ring-beam-200">
+        <p class="font-semibold">If you hold this product</p>
+        <p class="mt-1">Pharmacies and clinics: stop supplying the affected batches and follow the regulator's instructions. Patients: don't stop treatment on your own; speak to a pharmacist or doctor about a replacement.</p>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "app/_layout.html" %}
+{% from "macros.html" import pagination, csrf with context %}
+{% block title %}Inventory{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-end justify-between gap-3">
+  <div><h1 class="text-2xl font-bold">Inventory</h1><p class="text-ink-600">{{ total|int }} item{{ "s" if total != 1 }} watched against every alert.</p></div>
+  <div class="flex flex-wrap gap-2">
+    <a href="/app/inventory/new" class="btn-primary">Add item</a>
+    <a href="/app/inventory/import" class="btn-secondary">Import CSV</a>
+    {% if total %}<a href="/app/inventory/export.csv" class="btn-secondary">Export CSV</a>{% endif %}
+  </div>
+</div>
+<form method="get" class="mt-4 flex max-w-md gap-2" role="search">
+  <label for="i-q" class="sr-only">Search inventory</label>
+  <input id="i-q" name="q" value="{{ q }}" class="input" placeholder="Search name, ingredient, batch or maker">
+  <button class="btn-secondary" type="submit">Search</button>
+</form>
+{% if holdings %}
+<div class="card mt-4 overflow-x-auto">
+  <table class="table">
+    <thead><tr><th scope="col">Product</th><th scope="col">Batch</th><th scope="col">Expiry</th><th scope="col">Qty</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+    {% for h in holdings %}
+      <tr>
+        <td><span class="font-semibold text-ink-950">{{ h.product_name }}</span><div class="text-xs text-ink-500">{{ [h.active_ingredient, h.strength, h.manufacturer]|select|join(" · ") }}</div></td>
+        <td class="font-mono text-sm">{{ h.lot or "—" }}</td>
+        <td class="whitespace-nowrap">{{ h.expiry_date|date("—") }}</td>
+        <td>{{ h.quantity if h.quantity is not none else "—" }}</td>
+        <td>{% if open_by_holding.get(h.id) %}<a href="/app/matches" class="badge bg-red-100 text-red-800 no-underline">{{ open_by_holding[h.id] }} alert{{ "s" if open_by_holding[h.id] != 1 }}</a>{% elif not h.lot %}<span class="badge bg-beam-100 text-ink-800">No batch</span>{% else %}<span class="badge bg-emerald-100 text-emerald-800">Clear</span>{% endif %}</td>
+        <td class="whitespace-nowrap text-right">
+          <a href="/app/inventory/{{ h.id }}/edit" class="text-sm">Edit</a>
+          <form method="post" action="/app/inventory/{{ h.id }}/archive" class="ml-2 inline" data-confirm="Remove {{ h.product_name }} from the list?">{{ csrf() }}<button class="text-sm text-red-700 underline" type="submit">Remove</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{{ pagination(page, pages) }}
+{% elif q %}
+<div class="card card-pad mt-4 text-center text-ink-600">No items match “{{ q }}”.</div>
+{% else %}
+<div class="card card-pad mt-4 text-center"><p class="font-semibold">Nothing here yet.</p><p class="mt-1 text-sm text-ink-500">Add medicines you stock or take, and Batchlight will check them against every alert.</p>
+  <div class="mt-4 flex justify-center gap-2"><a href="/app/inventory/new" class="btn-primary">Add an item</a><a href="/app/inventory/import" class="btn-secondary">Import CSV</a></div></div>
+{% endif %}
+{% endblock %}

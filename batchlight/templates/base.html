@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Medicine safety alerts, batch by batch{% endblock %} · Batchlight</title>
+  <meta name="description" content="{% block description %}Batchlight brings medicine recalls and falsified-product alerts from regulators worldwide to the pharmacies, clinics and families holding the affected batches.{% endblock %}">
+  <meta name="theme-color" content="#13202f">
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css?v={{ version }}">
+  <script src="/static/app.js?v={{ version }}" defer></script>
+</head>
+<body class="flex min-h-screen flex-col">
+  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-white focus:px-4 focus:py-2">Skip to content</a>
+  <header class="bg-ink-900 text-white">
+    <div class="container-page flex items-center justify-between gap-3 py-3">
+      <a href="/" class="flex items-center gap-2.5 text-white no-underline">
+        <img src="/static/logo.svg" alt="" width="34" height="34" class="h-8 w-8">
+        <span class="text-lg font-bold tracking-tight">Batchlight</span>
+      </a>
+      {% set nav = [("/check", "Check a batch"), ("/alerts", "Alerts"), ("/manufacturers", "Manufacturers"), ("/impact", "Impact")] %}
+      <nav aria-label="Main" class="hidden items-center gap-1 md:flex">
+        {% for href, label in nav %}
+        <a href="{{ href }}" class="nav-link {% if path.startswith(href) %}nav-link-active{% endif %}" {% if path.startswith(href) %}aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </nav>
+      <div class="flex items-center gap-2">
+        {% if auth %}
+          {% if auth.org %}
+          <a href="/app/notifications" class="nav-link relative" aria-label="Notifications{% if unread %}, {{ unread }} unread{% endif %}">
+            <span aria-hidden="true">Inbox</span>
+            {% if unread %}<span class="ml-1 rounded-full bg-beam-400 px-1.5 py-0.5 text-xs font-bold text-ink-950">{{ unread if unread < 100 else "99+" }}</span>{% endif %}
+          </a>
+          {% endif %}
+          <a href="/app" class="btn-beam btn-sm hidden sm:inline-flex">My workspace</a>
+        {% else %}
+          <a href="/login" class="nav-link hidden sm:inline-block">Sign in</a>
+          <a href="/signup" class="btn-beam btn-sm">Get started free</a>
+        {% endif %}
+        <details class="relative md:hidden">
+          <summary class="nav-link cursor-pointer list-none" aria-label="Menu">Menu</summary>
+          <div class="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-ink-100 bg-white p-2 shadow-lg">
+            {% for href, label in nav %}<a href="{{ href }}" class="side-link">{{ label }}</a>{% endfor %}
+            {% if auth %}<a href="/app" class="side-link">My workspace</a>{% else %}<a href="/login" class="side-link">Sign in</a>{% endif %}
+          </div>
+        </details>
+      </div>
+    </div>
+  </header>
+
+  {% if flash %}
+  {% set flash_level, flash_message = flash %}
+  <div role="status" class="{% if flash_level == "error" %}bg-red-50 text-red-900 border-red-200{% elif flash_level == "info" %}bg-ink-100 text-ink-900 border-ink-200{% else %}bg-emerald-50 text-emerald-900 border-emerald-200{% endif %} border-b">
+    <div class="container-page py-3 text-sm font-medium">{{ flash_message }}</div>
+  </div>
+  {% endif %}
+
+  <main id="main" class="flex-1">
+    {% block body %}{% endblock %}
+  </main>
+
+  <footer class="mt-16 border-t border-ink-100 bg-white">
+    <div class="container-page grid gap-6 py-8 text-sm text-ink-600 md:grid-cols-3">
+      <div>
+        <div class="flex items-center gap-2 font-semibold text-ink-900"><img src="/static/logo.svg" alt="" class="h-6 w-6"> Batchlight</div>
+        <p class="mt-2">Medicine safety alerts from regulators worldwide, matched batch by batch to the stock and medicines people hold.</p>
+      </div>
+      <div>
+        <p class="font-semibold text-ink-900">Important</p>
+        <p class="mt-2">Batchlight relays official alerts and links to each source. It does not give medical advice. Don't stop taking a medicine without speaking to a pharmacist or doctor, unless an alert tells you to.</p>
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <p class="font-semibold text-ink-900">More</p>
+        <a href="/about">How Batchlight works</a>
+        <a href="/sources">Data sources</a>
+        <a href="/api/docs">API documentation</a>
+        <a href="https://github.com/greenwichg/Humanity-Labs">Source code</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

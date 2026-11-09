@@ -1,0 +1,51 @@
+# Local stack: PostgreSQL, migrations, web app, ingestion worker and a mail catcher.
+#   docker compose up --build
+#   App: http://localhost:8000   Mail: http://localhost:8025
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: batchlight
+      POSTGRES_USER: batchlight
+      POSTGRES_PASSWORD: batchlight
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U batchlight -d batchlight"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mail:
+    image: axllent/mailpit:v1.21
+    ports:
+      - "8025:8025"
+
+  migrate:
+    build: .
+    command: ["migrate"]
+    env_file: .env.docker
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: .
+    command: ["web"]
+    env_file: .env.docker
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build: .
+    command: ["worker"]
+    env_file: .env.docker
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

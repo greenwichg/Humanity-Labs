@@ -1,0 +1,81 @@
+{% extends "app/_layout.html" %}
+{% from "macros.html" import severity, alert_type, csrf with context %}
+{% block title %}Match: {{ match.holding.product_name }}{% endblock %}
+{% block content %}
+{% set alert = match.alert %}{% set h = match.holding %}{% set form = form or {} %}
+<nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/app/matches">Matches</a></nav>
+<div class="mt-2 flex flex-wrap items-center gap-2">{{ severity(alert.severity) }} {{ alert_type(alert.alert_type) }}
+  <span class="badge {{ 'bg-ink-900 text-white' if match.level == 'batch' else 'bg-ink-100 text-ink-800' }}">{{ "Batch match" if match.level == "batch" else "Product match: check the batch" }} · {{ match.confidence }}%</span></div>
+<h1 class="mt-2 text-2xl font-bold">{{ h.product_name }}{% if h.lot %} <span class="font-mono text-xl text-ink-600">batch {{ h.lot }}</span>{% endif %}</h1>
+<p class="mt-1 text-ink-600">may be affected by: <a href="/alerts/{{ alert.id }}">{{ alert.title }}</a></p>
+
+<div class="mt-6 grid gap-6 xl:grid-cols-5">
+  <div class="space-y-5 xl:col-span-3">
+    <section class="card card-pad">
+      <h2 class="font-bold">Why Batchlight matched this</h2>
+      <ul class="mt-2 list-disc space-y-1 pl-5 text-ink-700">{% for reason in match.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+      <div class="mt-4 grid gap-4 text-sm sm:grid-cols-2">
+        <div class="rounded-lg bg-ink-50 p-3"><p class="font-semibold text-ink-900">Your item</p>
+          <dl class="mt-1 space-y-0.5 text-ink-700">
+            <div>{{ h.product_name }}{% if h.strength %}, {{ h.strength }}{% endif %}</div>
+            {% if h.manufacturer %}<div>{{ h.manufacturer }}</div>{% endif %}
+            <div>Batch: <span class="font-mono">{{ h.lot or "not recorded" }}</span></div>
+            {% if h.expiry_date %}<div>Expiry: {{ h.expiry_date|date }}</div>{% endif %}
+            {% if h.quantity is not none %}<div>Quantity: {{ h.quantity }}</div>{% endif %}
+            {% if h.location %}<div>Location: {{ h.location }}</div>{% endif %}
+          </dl></div>
+        <div class="rounded-lg bg-ink-50 p-3"><p class="font-semibold text-ink-900">The alert</p>
+          <dl class="mt-1 space-y-0.5 text-ink-700">
+            <div>{{ alert.product_names[:3]|join(", ") or alert.title }}</div>
+            {% if alert.manufacturer %}<div>{{ alert.manufacturer }}</div>{% endif %}
+            <div>{% if alert.all_lots %}All batches{% elif lots %}Batches: <span class="font-mono">{{ lots|map(attribute=0)|join(", ") }}{% if alert.lot_count > lots|length %} +{{ alert.lot_count - lots|length }} more{% endif %}</span>{% else %}Batches: see the notice{% endif %}</div>
+            <div>{{ alert.regulator }}, {{ alert.published_at|date }}</div>
+          </dl></div>
+      </div>
+      {% if alert.reason %}<p class="mt-4 text-sm text-ink-700"><span class="font-semibold">Reason:</span> {{ alert.reason }}</p>{% endif %}
+      <a href="{{ alert.source_url }}" class="btn-secondary mt-4" rel="noopener noreferrer" target="_blank">Open the regulator's notice</a>
+    </section>
+    {% if auth.org.kind == "household" %}
+    <div class="rounded-xl bg-beam-50 p-4 text-sm text-ink-800 ring-1 ring-beam-200"><p class="font-semibold">Keep taking the medicine unless told otherwise</p><p class="mt-1">Show this alert to a pharmacist or doctor. They can confirm whether your pack is affected and arrange a replacement. Stopping some medicines suddenly is dangerous.</p></div>
+    {% else %}
+    <div class="rounded-xl bg-beam-50 p-4 text-sm text-ink-800 ring-1 ring-beam-200"><p class="font-semibold">What to do</p><p class="mt-1">Check the batch number on the physical stock. If it is affected, stop supplying it, quarantine it, and follow the regulator's instructions for return or destruction. Consider whether patients who received it need to be contacted.</p></div>
+    {% endif %}
+  </div>
+
+  <section class="card card-pad xl:col-span-2">
+    {% if match.status == "resolved" %}
+    <h2 class="font-bold">Resolved</h2>
+    <p class="mt-2"><span class="badge bg-emerald-100 text-emerald-800">{{ OUTCOME_LABELS.get(match.outcome, match.outcome) }}</span></p>
+    <dl class="mt-3 space-y-1 text-sm text-ink-700">
+      {% if match.units_affected is not none %}<div>Units: {{ match.units_affected }}</div>{% endif %}
+      <div>By {{ match.resolver.full_name if match.resolver else "API" }}, {{ match.resolved_at|datetime }}</div>
+      {% if match.note %}<div class="whitespace-pre-line">Note: {{ match.note }}</div>{% endif %}
+    </dl>
+    <form method="post" action="/app/matches/{{ match.id }}/reopen" class="mt-4">{{ csrf() }}<button class="btn-secondary btn-sm" type="submit">Reopen</button></form>
+    {% else %}
+    <h2 class="font-bold">Record what you did</h2>
+    <form method="post" action="/app/matches/{{ match.id }}/resolve" class="mt-3 space-y-4" novalidate>
+      {{ csrf() }}
+      <fieldset>
+        <legend class="label">Outcome</legend>
+        <div class="space-y-2">
+          {% for key in outcomes %}
+          <label class="flex items-start gap-2 rounded-lg border border-ink-100 px-3 py-2 text-sm hover:bg-ink-50">
+            <input type="radio" name="outcome" value="{{ key }}" class="mt-0.5" {% if form.get("outcome") == key %}checked{% endif %} required> <span>{{ OUTCOME_LABELS[key] }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        {% if errors.get("outcome") %}<p class="field-error">{{ errors.outcome }}</p>{% endif %}
+      </fieldset>
+      <div><label for="units" class="label">Units affected <span class="font-normal text-ink-400">(optional)</span></label>
+        <input id="units" name="units_affected" inputmode="numeric" value="{{ form.get('units_affected', '') }}" class="input {% if errors.get('units_affected') %}input-error{% endif %}">
+        {% if errors.get("units_affected") %}<p class="field-error">{{ errors.units_affected }}</p>{% endif %}</div>
+      <div><label for="note" class="label">Note <span class="font-normal text-ink-400">(optional)</span></label>
+        <textarea id="note" name="note" rows="3" class="input" placeholder="e.g. 3 packs found on shelf B2, returned to supplier">{{ form.get('note', '') }}</textarea>
+        {% if errors.get("note") %}<p class="field-error">{{ errors.note }}</p>{% endif %}</div>
+      <button class="btn-primary w-full" type="submit">Save</button>
+    </form>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

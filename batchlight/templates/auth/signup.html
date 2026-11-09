@@ -1,0 +1,24 @@
+{% extends "auth/_layout.html" %}
+{% from "macros.html" import csrf, field, select with context %}
+{% block title %}Create a free workspace{% endblock %}
+{% block card %}
+<h1 class="text-2xl font-bold">Create a free workspace</h1>
+<p class="mt-1 text-sm text-ink-500">Free for households, pharmacies and clinics. You can invite your team later.</p>
+<form method="post" action="/signup" class="mt-5 space-y-4" novalidate>
+  {{ csrf() }}
+  {{ field("full_name", "Your name", form, errors, required=True, autocomplete="name") }}
+  {{ field("email", "Email", form, errors, type="email", required=True, autocomplete="email") }}
+  {{ field("password", "Password", form, errors, type="password", required=True, autocomplete="new-password", hint="At least 10 characters.") }}
+  <hr class="border-ink-100">
+  {{ field("org_name", "Workspace name", form, errors, required=True, placeholder="e.g. Amina Pharmacy, or Dad's medicines") }}
+  <div>
+    <label for="f-org_kind" class="label">This workspace is for a</label>
+    <select id="f-org_kind" name="org_kind" class="input">{% for k in kinds %}<option value="{{ k }}" {% if form.get("org_kind") == k %}selected{% endif %}>{{ KIND_LABELS[k] }}</option>{% endfor %}</select>
+    {% if errors.get("org_kind") %}<p class="field-error">{{ errors.org_kind }}</p>{% endif %}
+  </div>
+  {{ select("country_code", "Country", countries, form.get("country_code", ""), errors, required=False) }}
+  <button class="btn-primary w-full" type="submit">Create workspace</button>
+  <p class="text-xs text-ink-500">Batchlight stores product and batch details, not patient information. It does not give medical advice.</p>
+</form>
+{% endblock %}
+{% block below %}<p class="mt-4 text-center text-sm text-ink-600">Already have an account? <a href="/login">Sign in</a></p>{% endblock %}

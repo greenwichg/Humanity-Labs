@@ -1,0 +1,40 @@
+{% extends "app/_layout.html" %}
+{% from "macros.html" import csrf, select with context %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold">Settings</h1>
+<div class="mt-6 grid max-w-3xl gap-6">
+  <section class="card card-pad">
+    <h2 class="font-bold">Workspace</h2>
+    {% if auth.can("manager") %}
+    <form method="post" action="/app/settings/workspace" class="mt-4 grid gap-4 sm:grid-cols-2" novalidate>
+      {{ csrf() }}
+      <div class="sm:col-span-2"><label for="ws-name" class="label">Name</label><input id="ws-name" name="name" value="{{ auth.org.name }}" class="input {% if errors.get('name') %}input-error{% endif %}" required>{% if errors.get("name") %}<p class="field-error">{{ errors.name }}</p>{% endif %}</div>
+      <div><label for="ws-kind" class="label">Type</label><select id="ws-kind" name="kind" class="input">{% for k in kinds %}<option value="{{ k }}" {% if k == auth.org.kind %}selected{% endif %}>{{ KIND_LABELS[k] }}</option>{% endfor %}</select></div>
+      {{ select("country_code", "Country", countries, auth.org.country_code, errors) }}
+      <label class="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" name="notify_email" {% if auth.org.notify_email %}checked{% endif %} class="mt-0.5"> <span>Email every member a digest when new alerts match this workspace's items. In-app notifications are always on.</span></label>
+      <div><button class="btn-primary" type="submit">Save workspace</button></div>
+    </form>
+    {% else %}
+    <p class="mt-2 text-sm text-ink-600">{{ auth.org.name }} · {{ KIND_LABELS.get(auth.org.kind) }} · {{ auth.org.country_code|flag }}. Ask an owner or manager to change these settings.</p>
+    {% endif %}
+  </section>
+  <section class="card card-pad">
+    <h2 class="font-bold">Your profile</h2>
+    <form method="post" action="/app/settings/profile" class="mt-4 flex flex-wrap items-end gap-3">
+      {{ csrf() }}
+      <div class="min-w-64 flex-1"><label for="p-name" class="label">Name</label><input id="p-name" name="full_name" value="{{ auth.user.full_name }}" class="input" required autocomplete="name"></div>
+      <button class="btn-secondary" type="submit">Save</button>
+    </form>
+  </section>
+  <section class="card card-pad">
+    <h2 class="font-bold">Change password</h2>
+    <form method="post" action="/app/settings/password" class="mt-4 grid gap-4 sm:grid-cols-2">
+      {{ csrf() }}
+      <div><label for="pw-current" class="label">Current password</label><input id="pw-current" name="current_password" type="password" class="input" autocomplete="current-password" required></div>
+      <div><label for="pw-new" class="label">New password</label><input id="pw-new" name="new_password" type="password" class="input" autocomplete="new-password" minlength="10" required></div>
+      <div><button class="btn-secondary" type="submit">Change password</button></div>
+    </form>
+  </section>
+</div>
+{% endblock %}

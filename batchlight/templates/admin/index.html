@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf with context %}
+{% block title %}Curator console{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <div class="flex flex-wrap items-end justify-between gap-3">
+    <div><h1 class="text-2xl font-bold">Curator console</h1><p class="text-ink-600">Keep sources healthy and add alerts from regulators that publish only PDFs or images.</p></div>
+    <div class="flex gap-2"><a href="/admin/alerts/new" class="btn-primary">Enter an alert</a><a href="/admin/alerts/import" class="btn-secondary">Import alerts CSV</a></div>
+  </div>
+  <section class="card mt-6 overflow-x-auto">
+    <table class="table">
+      <thead><tr><th scope="col">Source</th><th scope="col">Alerts</th><th scope="col">Last success</th><th scope="col">Health</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+      {% for s in sources %}
+        <tr>
+          <td><span class="font-semibold">{{ s.country_code|flag }} {{ s.name }}</span><div class="text-xs text-ink-500">{{ s.id }}{% if not s.automated %} · curated{% endif %}</div></td>
+          <td>{{ counts.get(s.id, 0)|int }}</td>
+          <td class="whitespace-nowrap">{{ s.last_success_at|ago if s.automated else "—" }}</td>
+          <td class="max-w-xs">{% if s.id in running %}<span class="badge bg-sky-100 text-sky-800">Running</span>{% elif not s.enabled %}<span class="tag">Paused</span>{% elif s.last_error %}<span class="badge bg-red-100 text-red-800">Failing</span><div class="mt-1 line-clamp-2 text-xs text-red-800">{{ s.last_error }}</div>{% elif s.automated %}<span class="badge bg-emerald-100 text-emerald-800">Healthy</span>{% endif %}</td>
+          <td class="whitespace-nowrap text-right">
+            {% if s.automated %}
+            <form method="post" action="/admin/sources/{{ s.id }}/run" class="inline">{{ csrf() }}<button class="btn-secondary btn-sm" type="submit" {% if s.id in running %}disabled{% endif %}>Run now</button></form>
+            <form method="post" action="/admin/sources/{{ s.id }}/toggle" class="inline">{{ csrf() }}<button class="btn-secondary btn-sm" type="submit">{{ "Pause" if s.enabled else "Enable" }}</button></form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  <h2 class="mt-8 text-lg font-bold">Recent runs</h2>
+  <div class="card mt-3 overflow-x-auto">
+    <table class="table">
+      <thead><tr><th scope="col">Source</th><th scope="col">Started</th><th scope="col">Status</th><th scope="col">Fetched</th><th scope="col">New</th><th scope="col">Updated</th><th scope="col">Matched</th></tr></thead>
+      <tbody>
+      {% for r in runs %}
+        <tr><td>{{ r.source_id }}</td><td class="whitespace-nowrap">{{ r.started_at|datetime }}</td>
+          <td>{% if r.status == "succeeded" %}<span class="badge bg-emerald-100 text-emerald-800">Succeeded</span>{% elif r.status == "failed" %}<span class="badge bg-red-100 text-red-800" title="{{ r.error }}">Failed</span>{% else %}<span class="badge bg-sky-100 text-sky-800">Running</span>{% endif %}</td>
+          <td>{{ r.fetched }}</td><td>{{ r.created }}</td><td>{{ r.updated }}</td><td>{{ r.matched }}</td></tr>
+      {% else %}<tr><td colspan="7" class="text-center text-ink-500">No runs yet. Start one with “Run now”, or run the worker.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

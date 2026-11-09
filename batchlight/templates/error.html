@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block body %}
+<div class="container-page py-16">
+  <div class="card card-pad mx-auto max-w-lg text-center">
+    <h1 class="text-2xl font-bold">{{ title }}</h1>
+    <p class="mt-3 text-ink-600">{{ message }}</p>
+    <div class="mt-6 flex justify-center gap-3">
+      <a href="/" class="btn-secondary">Home</a>
+      <a href="/check" class="btn-primary">Check a batch</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

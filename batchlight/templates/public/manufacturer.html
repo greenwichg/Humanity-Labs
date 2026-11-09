@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% from "macros.html" import alert_row with context %}
+{% block title %}{{ name }}{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/manufacturers">Manufacturers</a></nav>
+  <h1 class="mt-2 text-2xl font-bold sm:text-3xl">{{ name }}</h1>
+  <p class="mt-2 text-ink-600">{{ alerts|length }} alert{{ "s" if alerts|length != 1 }} from {{ regulators|length }} regulator{{ "s" if regulators|length != 1 }}: {{ regulators|join(", ") }}.</p>
+  <ul class="mt-6 space-y-3">{% for alert in alerts %}{{ alert_row(alert) }}{% endfor %}</ul>
+</div>
+{% endblock %}

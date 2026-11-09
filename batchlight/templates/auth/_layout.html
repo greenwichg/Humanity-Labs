@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="container-page py-10 sm:py-14">
+  <div class="mx-auto max-w-md">
+    <div class="card card-pad sm:p-8">{% block card %}{% endblock %}</div>
+    {% block below %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

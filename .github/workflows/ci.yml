@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: batchlight_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      BATCHLIGHT_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/batchlight_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check batchlight tests migrations/env.py
+      - run: ruff format --check batchlight tests migrations/env.py
+      - run: pytest --cov=batchlight --cov-report=term-missing
+      - name: Migrations match the models
+        run: BATCHLIGHT_DATABASE_URL=$BATCHLIGHT_TEST_DATABASE_URL alembic check
+
+  stylesheet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build:css
+      - name: Committed stylesheet is up to date
+        run: git diff --exit-code batchlight/static/app.css
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t batchlight:ci .

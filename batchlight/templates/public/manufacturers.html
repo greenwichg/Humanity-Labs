@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Manufacturer alert histories{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <h1 class="text-2xl font-bold sm:text-3xl">Manufacturer alert histories</h1>
+  <p class="mt-2 max-w-3xl text-ink-600">Every alert naming a company, across all regulators. Procurement teams can use this before buying. Companies are grouped by normalised name, so check the individual alerts before drawing conclusions. Being named in a recall is not proof of poor quality; recalls are also a sign of a working quality system.</p>
+  <form method="get" class="mt-6 flex max-w-lg gap-2" role="search">
+    <label for="m-q" class="sr-only">Search manufacturers</label>
+    <input id="m-q" name="q" value="{{ q }}" class="input" placeholder="Search a company name">
+    <button class="btn-primary" type="submit">Search</button>
+  </form>
+  {% if rows %}
+  <div class="card mt-6 overflow-x-auto">
+    <table class="table">
+      <thead><tr><th scope="col">Company</th><th scope="col">Alerts</th><th scope="col">Critical</th><th scope="col">Sources</th><th scope="col">Latest</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr><td><a href="/manufacturers/{{ row.slug }}" class="font-medium">{{ row.name }}</a></td><td>{{ row.alerts }}</td>
+            <td>{% if row.critical %}<span class="sev-critical">{{ row.critical }}</span>{% else %}0{% endif %}</td><td>{{ row.sources }}</td><td class="whitespace-nowrap">{{ row.latest|date }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card card-pad mt-6 text-center text-ink-600">No manufacturers found.</div>
+  {% endif %}
+</div>
+{% endblock %}

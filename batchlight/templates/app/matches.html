@@ -1,0 +1,33 @@
+{% extends "app/_layout.html" %}
+{% from "macros.html" import severity, pagination with context %}
+{% block title %}Matches{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold">Matches</h1>
+<p class="text-ink-600">Items in {{ auth.org.name }} that safety alerts may affect.</p>
+<nav class="mt-4 flex gap-2" aria-label="Filter matches">
+  {% for key, label in [("open", "Needs action"), ("resolved", "Resolved"), ("all", "All")] %}
+  <a href="?status={{ key }}" class="btn-sm {{ 'btn-primary' if status == key else 'btn-secondary' }}" {% if status == key %}aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
+{% if matches %}
+<div class="card mt-4 overflow-x-auto">
+  <table class="table">
+    <thead><tr><th scope="col">Severity</th><th scope="col">Your item</th><th scope="col">Alert</th><th scope="col">Match</th><th scope="col">Status</th></tr></thead>
+    <tbody>
+    {% for m in matches %}
+      <tr>
+        <td>{{ severity(m.alert.severity) }}</td>
+        <td><a href="/app/matches/{{ m.id }}" class="font-semibold">{{ m.holding.product_name }}</a>{% if m.holding.lot %}<div class="font-mono text-xs text-ink-500">batch {{ m.holding.lot }}</div>{% endif %}</td>
+        <td class="max-w-md"><span class="line-clamp-2">{{ m.alert.title }}</span><div class="text-xs text-ink-500">{{ m.alert.regulator }} · {{ m.alert.published_at|date }}</div></td>
+        <td class="whitespace-nowrap">{{ "Batch" if m.level == "batch" else "Product" }} · {{ m.confidence }}%</td>
+        <td class="whitespace-nowrap">{% if m.status == "open" %}<span class="badge bg-red-100 text-red-800">Needs action</span>{% else %}<span class="badge bg-emerald-100 text-emerald-800">{{ OUTCOME_LABELS.get(m.outcome, m.outcome) }}</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{{ pagination(page, pages) }}
+{% else %}
+<div class="card card-pad mt-4 text-center"><p class="font-semibold">{% if status == "open" %}Nothing needs action.{% else %}No matches here yet.{% endif %}</p><p class="mt-1 text-sm text-ink-500">Batchlight checks your items against every new alert.</p></div>
+{% endif %}
+{% endblock %}

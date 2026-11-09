@@ -1,0 +1,27 @@
+{% extends "auth/_layout.html" %}
+{% from "macros.html" import csrf, field with context %}
+{% block title %}Join a workspace{% endblock %}
+{% block card %}
+{% if not invitation %}
+<h1 class="text-2xl font-bold">This invitation has expired</h1>
+<p class="mt-2 text-ink-700">Ask the person who invited you to send a new invitation.</p>
+{% else %}
+<h1 class="text-2xl font-bold">Join {{ invitation.organization.name }}</h1>
+<p class="mt-1 text-sm text-ink-500">You've been invited as a <strong>{{ invitation.role }}</strong> using {{ invitation.email }}.</p>
+<form method="post" action="/invite/{{ token }}" class="mt-5 space-y-4" novalidate>
+  {{ csrf() }}
+  {% if has_account %}
+    {% if auth and auth.user.email == invitation.email %}
+    <button class="btn-primary w-full" type="submit">Accept and join</button>
+    {% else %}
+    <p class="text-sm text-ink-700">You already have a Batchlight account. Sign in as {{ invitation.email }} to accept.</p>
+    <a href="/login?next=/invite/{{ token }}" class="btn-primary w-full">Sign in to accept</a>
+    {% endif %}
+  {% else %}
+    {{ field("full_name", "Your name", form, errors, required=True, autocomplete="name") }}
+    {{ field("password", "Choose a password", form, errors, type="password", required=True, autocomplete="new-password", hint="At least 10 characters.") }}
+    <button class="btn-primary w-full" type="submit">Create account and join</button>
+  {% endif %}
+</form>
+{% endif %}
+{% endblock %}

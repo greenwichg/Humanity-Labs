@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "macros.html" import severity, alert_type with context %}
+{% block title %}Check a batch{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <h1 class="text-2xl font-bold sm:text-3xl">Check a batch</h1>
+  <p class="mt-2 max-w-2xl text-ink-600">Search every alert Batchlight holds for a batch number. Adding the medicine name lets Batchlight confirm the match and also find alerts that cover all batches of a product.</p>
+
+  <form action="/check" method="get" class="card card-pad mt-6 grid gap-4 md:grid-cols-4 md:items-end" role="search">
+    <div class="md:col-span-1"><label for="c-batch" class="label">Batch or lot number</label><input id="c-batch" name="batch" value="{{ batch }}" class="input font-mono" autocomplete="off" placeholder="e.g. E941A"></div>
+    <div class="md:col-span-1"><label for="c-product" class="label">Medicine name</label><input id="c-product" name="product" value="{{ product }}" class="input" placeholder="e.g. Tropicamide 1% eye drops"></div>
+    <div class="md:col-span-1"><label for="c-maker" class="label">Manufacturer <span class="font-normal text-ink-400">(optional)</span></label><input id="c-maker" name="manufacturer" value="{{ manufacturer }}" class="input" placeholder="As printed on the pack"></div>
+    <button class="btn-primary" type="submit">Check</button>
+  </form>
+
+  {% if searched %}
+  <section class="mt-8" aria-live="polite">
+    {% if results %}
+    <div class="rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
+      <p class="font-semibold">{{ results|length }} alert{{ "s" if results|length != 1 }} may concern this {% if batch %}batch{% else %}product{% endif %}.</p>
+      <p class="mt-1 text-sm">Compare the details below with the pack in front of you, then follow the advice in the original notice. Patients should keep taking their medicine and talk to a pharmacist or doctor unless the alert says otherwise.</p>
+    </div>
+    <ul class="mt-4 space-y-3">
+      {% for r in results %}
+      <li class="card stripe-{{ r.alert.severity }} p-4 sm:p-5">
+        <div class="flex flex-wrap items-center gap-2">
+          {{ severity(r.alert.severity) }} {{ alert_type(r.alert.alert_type) }}
+          {% if r.batch_match %}<span class="badge bg-ink-900 text-white">Batch {{ batch }} is listed</span>{% elif r.decision %}<span class="badge bg-ink-100 text-ink-800">Product match: check your batch</span>{% endif %}
+          {% if r.decision %}<span class="text-xs text-ink-500">Confidence {{ r.decision.confidence }}%</span>{% endif %}
+        </div>
+        <a href="/alerts/{{ r.alert.id }}" class="mt-2 block font-semibold text-ink-950">{{ r.alert.title }}</a>
+        <p class="mt-1 text-sm text-ink-600">{{ r.alert.country_code|flag }} {{ r.alert.regulator }} · {{ r.alert.published_at|date }}{% if r.alert.manufacturer %} · {{ r.alert.manufacturer }}{% endif %}</p>
+        {% if r.decision %}<ul class="mt-2 list-disc space-y-0.5 pl-5 text-sm text-ink-700">{% for reason in r.decision.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+        {% elif not product %}<p class="mt-2 text-sm text-ink-700">Only the batch number was checked. Make sure the product name and manufacturer also match the alert, because unrelated products can share a batch number.</p>{% endif %}
+        <div class="mt-3 flex flex-wrap gap-3 text-sm"><a href="/alerts/{{ r.alert.id }}">Full alert</a><a href="{{ r.alert.source_url }}" rel="noopener noreferrer" target="_blank">Original notice from {{ r.alert.regulator }}</a></div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
+      <p class="font-semibold">No alert in Batchlight matches {% if batch %}batch <span class="font-mono">{{ batch }}</span>{% endif %}{% if batch and product %} of {% endif %}{% if product %}{{ product }}{% endif %}.</p>
+      <p class="mt-1 text-sm">This is not proof that the product is genuine or of good quality. Batchlight only knows about alerts from the sources below. If a pack looks wrong (spelling mistakes, damaged seals, unusual colour or smell), report it to your national medicines regulator.</p>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section class="mt-8">
+    <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-500">Sources searched</h2>
+    <ul class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {% for row in sources %}
+      <li class="card px-4 py-3 text-sm">
+        <p class="font-medium text-ink-900">{{ row.source.country_code|flag }} {{ row.source.name }}</p>
+        <p class="text-ink-500">{{ row.alerts|int }} alerts · {% if row.source.automated %}refreshed {{ row.source.last_success_at|ago }}{% else %}entered by curators{% endif %}</p>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+{% endblock %}

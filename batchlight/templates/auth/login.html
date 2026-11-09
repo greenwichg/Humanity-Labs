@@ -1,0 +1,16 @@
+{% extends "auth/_layout.html" %}
+{% from "macros.html" import csrf with context %}
+{% block title %}Sign in{% endblock %}
+{% block card %}
+<h1 class="text-2xl font-bold">Sign in</h1>
+<p class="mt-1 text-sm text-ink-500">Welcome back to Batchlight.</p>
+{% if error %}<div role="alert" class="mt-4 rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">{{ error }}</div>{% endif %}
+<form method="post" action="/login" class="mt-5 space-y-4">
+  {{ csrf() }}<input type="hidden" name="next" value="{{ next }}">
+  <div><label for="l-email" class="label">Email</label><input id="l-email" name="email" type="email" value="{{ email }}" class="input" autocomplete="email" required autofocus></div>
+  <div><div class="flex justify-between"><label for="l-pw" class="label">Password</label><a href="/forgot-password" class="text-xs">Forgot password?</a></div>
+    <input id="l-pw" name="password" type="password" class="input" autocomplete="current-password" required></div>
+  <button class="btn-primary w-full" type="submit">Sign in</button>
+</form>
+{% endblock %}
+{% block below %}<p class="mt-4 text-center text-sm text-ink-600">New to Batchlight? <a href="/signup">Create a free workspace</a></p>{% endblock %}

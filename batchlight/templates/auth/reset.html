@@ -1,0 +1,18 @@
+{% extends "auth/_layout.html" %}
+{% from "macros.html" import csrf with context %}
+{% block title %}Choose a new password{% endblock %}
+{% block card %}
+{% if valid %}
+<h1 class="text-2xl font-bold">Choose a new password</h1>
+{% if error %}<div role="alert" class="mt-4 rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">{{ error }}</div>{% endif %}
+<form method="post" action="/reset-password/{{ token }}" class="mt-5 space-y-4">
+  {{ csrf() }}
+  <div><label for="rp-pw" class="label">New password</label><input id="rp-pw" name="password" type="password" class="input" autocomplete="new-password" required minlength="10"><p class="hint">At least 10 characters. Other sessions will be signed out.</p></div>
+  <button class="btn-primary w-full" type="submit">Save password</button>
+</form>
+{% else %}
+<h1 class="text-2xl font-bold">This link has expired</h1>
+<p class="mt-2 text-ink-700">Password reset links work once, for one hour.</p>
+<a href="/forgot-password" class="btn-primary mt-5 w-full">Send a new link</a>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Impact{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <h1 class="text-2xl font-bold sm:text-3xl">Impact</h1>
+  <p class="mt-2 max-w-3xl text-ink-600">Batchlight measures what happens to affected stock, not page views. Every number on this page is computed live from records in the system.</p>
+
+  <h2 class="mt-8 text-lg font-bold">Action on affected stock</h2>
+  <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="stat"><p class="stat-value">{{ matches.matches_total|int }}</p><p class="stat-label">stock items matched to alerts</p></div>
+    <div class="stat"><p class="stat-value">{{ matches.median_hours_to_action|hours }}</p><p class="stat-label">median time from match to recorded action</p></div>
+    <div class="stat"><p class="stat-value">{{ matches.action_rate_72h|pct }}</p><p class="stat-label">of matches acted on within 72 hours{% if matches.matches_eligible_72h %} (of {{ matches.matches_eligible_72h }}){% endif %}</p></div>
+    <div class="stat"><p class="stat-value">{{ matches.units_removed|int }}</p><p class="stat-label">units quarantined, returned or destroyed</p></div>
+  </div>
+
+  <h2 class="mt-8 text-lg font-bold">Alert coverage and speed</h2>
+  <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="stat"><p class="stat-value">{{ alerts.alerts_total|int }}</p><p class="stat-label">alerts from {{ alerts.regulators }} regulators</p></div>
+    <div class="stat"><p class="stat-value">{{ alerts.batch_share|pct }}</p><p class="stat-label">of alerts identify specific batches or all batches</p></div>
+    <div class="stat"><p class="stat-value">{% if alerts.median_days_publication_to_batchlight is not none %}{{ "%.0f"|format(alerts.median_days_publication_to_batchlight) }} days{% else %}—{% endif %}</p><p class="stat-label">median from publication to Batchlight{% if alerts.latency_sample %} ({{ alerts.latency_sample }} alerts){% else %} (measured after the first refresh){% endif %}</p></div>
+    <div class="stat"><p class="stat-value">{{ matches.false_match_rate|pct }}</p><p class="stat-label">of resolved matches marked as false matches</p></div>
+  </div>
+
+  <h2 class="mt-8 text-lg font-bold">Reach</h2>
+  <div class="mt-3 grid gap-4 sm:grid-cols-3">
+    <div class="stat"><p class="stat-value">{{ reach.workspaces|int }}</p><p class="stat-label">workspaces in {{ reach.countries }} countr{{ "ies" if reach.countries != 1 else "y" }}</p></div>
+    <div class="stat"><p class="stat-value">{{ reach.holdings|int }}</p><p class="stat-label">stock lines and medicines watched</p></div>
+    <div class="stat"><p class="stat-value">{{ reach.holdings_with_batch|int }}</p><p class="stat-label">of those with a batch number, so matches are precise</p></div>
+  </div>
+
+  <div class="mt-8 grid gap-6 md:grid-cols-2">
+    <section class="card card-pad"><h2 class="font-bold">Alerts by source</h2>
+      <ul class="mt-3 space-y-2 text-sm">{% for name, count in alerts.by_source %}<li class="flex justify-between"><span>{{ name }}</span><span class="font-semibold">{{ count|int }}</span></li>{% else %}<li class="text-ink-500">No alerts yet.</li>{% endfor %}</ul></section>
+    <section class="card card-pad"><h2 class="font-bold">Alerts by severity</h2>
+      <ul class="mt-3 space-y-2 text-sm">{% for key, label in SEVERITY_LABELS.items() %}<li class="flex justify-between"><span class="sev-{{ key }}">{{ label }}</span><span class="font-semibold">{{ alerts.by_severity.get(key, 0)|int }}</span></li>{% endfor %}</ul></section>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "app/_layout.html" %}
+{% from "macros.html" import csrf with context %}
+{% block title %}Team{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold">Team</h1>
+<p class="text-ink-600">Everyone here is notified when an alert matches {{ auth.org.name }}'s items.</p>
+
+{% if invite_link %}
+<div role="status" class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
+  <p class="font-semibold">{{ invite_message }}</p>
+  <div class="mt-2 flex gap-2"><input id="invite-link" readonly value="{{ invite_link }}" class="input font-mono text-xs"><button type="button" class="btn-secondary btn-sm" data-copy="invite-link">Copy</button></div>
+  <p class="mt-1 text-xs">The link works once and expires in 14 days.</p>
+</div>
+{% endif %}
+
+<div class="card mt-4 overflow-x-auto">
+  <table class="table">
+    <thead><tr><th scope="col">Name</th><th scope="col">Role</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+    {% for m in members %}
+      <tr>
+        <td><span class="font-semibold">{{ m.user.full_name }}</span>{% if m.user_id == auth.user.id %} <span class="tag">You</span>{% endif %}<div class="text-xs text-ink-500">{{ m.user.email }}</div></td>
+        <td>
+          {% if auth.can("manager") and (m.role != "owner" or auth.can("owner")) %}
+          <form method="post" action="/app/team/members/{{ m.user_id }}/role" class="flex gap-2">{{ csrf() }}
+            <label class="sr-only" for="role-{{ m.user_id }}">Role for {{ m.user.full_name }}</label>
+            <select id="role-{{ m.user_id }}" name="role" class="input py-1.5" data-autosubmit>{% for r in roles %}{% if r != "owner" or auth.can("owner") %}<option value="{{ r }}" {% if r == m.role %}selected{% endif %}>{{ r|title }}</option>{% endif %}{% endfor %}</select>
+            <noscript><button class="btn-secondary btn-sm">Save</button></noscript>
+          </form>
+          {% else %}{{ m.role|title }}{% endif %}
+        </td>
+        <td class="text-right">
+          {% if (auth.can("manager") and (m.role != "owner" or auth.can("owner"))) or m.user_id == auth.user.id %}
+          <form method="post" action="/app/team/members/{{ m.user_id }}/remove" data-confirm="{{ 'Leave this workspace?' if m.user_id == auth.user.id else 'Remove ' ~ m.user.full_name ~ '?' }}">{{ csrf() }}
+            <button class="text-sm text-red-700 underline" type="submit">{{ "Leave" if m.user_id == auth.user.id else "Remove" }}</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if invitations %}
+<h2 class="mt-8 text-lg font-bold">Pending invitations</h2>
+<ul class="card mt-3 divide-y divide-ink-50">
+  {% for inv in invitations %}
+  <li class="flex items-center justify-between gap-3 px-5 py-3 text-sm"><span>{{ inv.email }} · {{ inv.role|title }} · expires {{ inv.expires_at|date }}</span>
+    {% if auth.can("manager") and inv.id %}<form method="post" action="/app/team/invitations/{{ inv.id }}/revoke">{{ csrf() }}<button class="text-red-700 underline" type="submit">Revoke</button></form>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if auth.can("manager") %}
+<h2 class="mt-8 text-lg font-bold">Invite someone</h2>
+<form method="post" action="/app/team/invite" class="card card-pad mt-3 grid max-w-2xl gap-3 sm:grid-cols-[1fr_10rem_auto] sm:items-end" novalidate>
+  {{ csrf() }}
+  <div><label for="inv-email" class="label">Email</label><input id="inv-email" name="email" type="email" value="{{ (form or {}).get('email', '') }}" class="input {% if errors.get('email') %}input-error{% endif %}" required>
+    {% if errors.get("email") %}<p class="field-error">{{ errors.email }}</p>{% endif %}</div>
+  <div><label for="inv-role" class="label">Role</label><select id="inv-role" name="role" class="input">{% for r in roles %}{% if r != "owner" or auth.can("owner") %}<option value="{{ r }}" {% if r == "member" %}selected{% endif %}>{{ r|title }}</option>{% endif %}{% endfor %}</select>
+    {% if errors.get("role") %}<p class="field-error">{{ errors.role }}</p>{% endif %}</div>
+  <button class="btn-primary" type="submit">Send invitation</button>
+</form>
+<p class="mt-2 text-xs text-ink-500">Members manage inventory and matches. Managers can also invite people and create API keys. Owners can do everything, including granting ownership.</p>
+{% endif %}
+{% endblock %}

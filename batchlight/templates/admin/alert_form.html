@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf, field, textarea, select with context %}
+{% block title %}Enter an alert{% endblock %}
+{% block body %}
+<div class="container-page max-w-4xl py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/admin">Curator console</a></nav>
+  <h1 class="mt-2 text-2xl font-bold">Enter an alert from a regulator notice</h1>
+  <p class="mt-1 text-ink-600">Transcribe a notice that is published only as a PDF or image, such as CDSCO's monthly “Not of Standard Quality” lists or NAFDAC alerts. It is matched against every workspace as soon as you publish it.</p>
+  <form method="post" action="/admin/alerts" class="card card-pad mt-6 space-y-5" novalidate>
+    {{ csrf() }}
+    {% if errors %}<div role="alert" class="rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">Please fix the highlighted fields.</div>{% endif %}
+    <div class="grid gap-4 sm:grid-cols-2">
+      {{ field("regulator", "Regulator", form, errors, required=True, placeholder="e.g. CDSCO (India)") }}
+      {{ select("country_code", "Regulator's country", countries, form.get("country_code", ""), errors, required=False) }}
+      <div class="sm:col-span-2">{{ field("title", "Title", form, errors, required=True, placeholder="e.g. Not of standard quality: Paracetamol Oral Suspension") }}</div>
+      {{ select("alert_type", "Type", TYPE_LABELS.items()|list, form.get("alert_type"), errors) }}
+      {{ select("severity", "Severity", SEVERITY_LABELS.items()|list, form.get("severity"), errors) }}
+      {{ field("product_names", "Product names", form, errors, required=True, hint="Separate several with commas.") }}
+      {{ field("active_ingredients", "Active ingredients", form, errors, hint="Separate several with commas.") }}
+      {{ field("manufacturer", "Manufacturer as stated", form, errors) }}
+      {{ field("product_codes", "Product codes", form, errors, hint="NDC, GTIN or registration numbers, separated by commas.") }}
+      <div class="sm:col-span-2">{{ textarea("batches", "Affected batches", form, errors, rows=5, hint="One batch per line, optionally followed by a comma and the expiry: “PCS2401, 06/2026”.") }}</div>
+      <label class="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" name="all_lots" value="true" {% if form.get("all_lots") in ("true", "on") %}checked{% endif %}> The alert covers all batches of the product</label>
+      <div class="sm:col-span-2">{{ textarea("reason", "Reason", form, errors, rows=3) }}</div>
+      {{ field("published_at", "Publication date", form, errors, type="date", required=True) }}
+      {{ field("source_url", "Link to the original notice", form, errors, type="url", required=True, placeholder="https://") }}
+    </div>
+    <button class="btn-primary" type="submit">Publish and match</button>
+  </form>
+</div>
+{% endblock %}
