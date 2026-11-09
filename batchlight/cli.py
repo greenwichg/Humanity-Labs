@@ -22,6 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     curator = sub.add_parser("make-curator", help="grant the curator role to an existing user")
     curator.add_argument("email")
     curator.add_argument("--revoke", action="store_true")
+    sub.add_parser("rescore", help="re-apply the current matching rules to open matches")
     ingest = sub.add_parser("ingest", help="run ingestion once")
     ingest.add_argument("--source", action="append")
     args = parser.parse_args(argv)
@@ -35,6 +36,13 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             user.is_curator = not args.revoke
             print(f"{user.email} is {'no longer ' if args.revoke else ''}a curator")
+        return 0
+    if args.command == "rescore":
+        from .matching import rescore_open_matches
+
+        with session_scope() as session:
+            updated, removed = rescore_open_matches(session)
+        print(f"open matches updated: {updated}, removed: {removed}")
         return 0
     if args.command == "ingest":
         from .worker import run_once

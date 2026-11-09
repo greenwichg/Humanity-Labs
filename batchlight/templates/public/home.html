@@ -30,7 +30,7 @@
   <div class="stat"><p class="stat-value">{{ alert_stats.alerts_total|int }}</p><p class="stat-label">safety alerts from {{ alert_stats.regulators }} regulators</p></div>
   <div class="stat"><p class="stat-value">{{ alert_stats.batches_total|int }}</p><p class="stat-label">affected batch numbers you can check</p></div>
   <div class="stat"><p class="stat-value">{{ alert_stats.batch_share|pct }}</p><p class="stat-label">of alerts identify specific batches</p></div>
-  <div class="stat"><p class="stat-value">{{ sources|length }}</p><p class="stat-label">sources refreshed automatically</p></div>
+  <div class="stat"><p class="stat-value">{{ sources|selectattr("source.automated")|list|length }}</p><p class="stat-label">regulator feeds refreshed automatically</p></div>
 </section>
 
 <section class="container-page mt-12 grid gap-8 lg:grid-cols-3">

@@ -18,14 +18,25 @@ from sqlalchemy.orm import Session, selectinload
 
 from .config import get_settings
 from .models import Alert, AlertLot, Holding, Match
-from .text import codes_match, manufacturer_similarity, strengths
+from .text import codes_match, manufacturer_similarity, name_tokens, strengths
 
 FALSIFIED_TYPES = {"falsified", "substandard"}
+# Salts, counter-ions and generic words that appear in many unrelated product names.
+WEAK_TOKENS = frozenset(
+    """
+    sodium potassium calcium magnesium zinc iron lithium aluminium aluminum chloride hydrochloride bromide hydrobromide
+    acetate sulfate sulphate phosphate citrate bicarbonate carbonate maleate succinate tartrate mesylate besylate besilate
+    fumarate nitrate gluconate lactate oxide hydroxide dihydrate monohydrate trihydrate anhydrous water dextrose glucose
+    saline vitamin acid base plus extra strength childrens children adult adults infant infants junior original regular
+    maximum relief care health healthcare pharma flavor flavour mint cherry orange lemon strawberry grape menthol
+    """.split()
+)
 
 
 @dataclass
 class AlertFacts:
     name_tokens: set[str]
+    product_tokens: set[str]
     lot_keys: set[str]
     all_lots: bool
     manufacturer: str | None
@@ -37,6 +48,7 @@ class AlertFacts:
     def from_alert(cls, alert: Alert) -> AlertFacts:
         return cls(
             name_tokens=set(alert.name_tokens or []),
+            product_tokens=set(name_tokens(*(alert.product_names or []))),
             lot_keys={lot.lot_key for lot in alert.lots},
             all_lots=alert.all_lots,
             manufacturer=alert.manufacturer,
@@ -72,42 +84,58 @@ class Decision:
     reasons: list[str] = field(default_factory=list)
 
 
-def score(alert: AlertFacts, holding: HoldingFacts) -> Decision | None:
+def _covers(holding_tokens: set[str], alert_tokens: set[str]) -> set[str]:
+    """Tokens proving the alert names the holding's product, or an empty set.
+
+    Every distinctive word of the holding's name must appear in the alert, so
+    "Levothyroxine Sodium Tablets" needs "levothyroxine". Words such as
+    "sodium" or "chloride" only count when the name has nothing more specific.
+    """
+    strong = {t for t in holding_tokens if len(t) >= 4 and t not in WEAK_TOKENS}
+    required = strong or holding_tokens
+    if not required or not required <= alert_tokens:
+        return set()
+    return required
+
+
+def score(alert: AlertFacts, holding: HoldingFacts, strict: bool = True) -> Decision | None:
     """Decide whether an alert affects a holding, and how confidently.
 
     Rules (see docs/ARCHITECTURE.md, "Matching algorithm"):
 
-    * A batch-level match needs the batch number **and** at least one piece of
-      product evidence, because short batch codes collide across products.
-    * A product-level match needs strong product evidence and no conflicting
-      manufacturer or strength. It applies when the alert covers all batches,
-      lists none, or the holding has no batch recorded.
+    * A batch-level match needs the batch number **and** product evidence
+      (product code, product name or manufacturer), because short batch
+      codes collide across unrelated products.
     * A holding whose batch is known and not on the alert's list never matches.
+    * A product-level match (the alert covers all batches, lists none, or the
+      holding has no batch) needs the alert's *product name* to cover the
+      holding's name, no conflicting strength or manufacturer, and positive
+      identity evidence: a product code, a matching manufacturer, or, for
+      falsified and substandard alerts, the brand name. With ``strict=False``
+      (the public batch check) a name match alone is enough.
     """
     reasons: list[str] = []
 
     code_hit = bool(holding.product_code) and any(codes_match(holding.product_code, c) for c in alert.product_codes)
-    overlap = holding.name_tokens & alert.name_tokens
-    containment = len(overlap) / len(holding.name_tokens) if holding.name_tokens else 0.0
-    name_hit = containment >= 0.5 and any(len(token) >= 4 for token in overlap)
+    name_overlap = _covers(holding.name_tokens, alert.name_tokens)
+    product_overlap = _covers(holding.name_tokens, alert.product_tokens)
     maker_known = bool(holding.manufacturer and alert.manufacturer)
-    maker_sim = manufacturer_similarity(holding.manufacturer, alert.manufacturer) if maker_known else 0.0
-    maker_hit = maker_sim >= 0.5
+    maker_hit = maker_known and manufacturer_similarity(holding.manufacturer, alert.manufacturer) >= 0.5
     maker_conflict = maker_known and not maker_hit
     strength_conflict = bool(holding.strengths and alert.strengths and not holding.strengths & alert.strengths)
 
     if code_hit:
         reasons.append("Product code matches the alert")
-    if name_hit:
-        reasons.append("Product name matches: " + ", ".join(sorted(overlap)))
+    if name_overlap:
+        reasons.append("Product name matches: " + ", ".join(sorted(name_overlap)))
     if maker_hit:
         reasons.append("Manufacturer matches")
 
     batch_hit = bool(holding.lot_key) and holding.lot_key in alert.lot_keys
     if batch_hit:
-        if not (code_hit or name_hit or maker_hit):
+        if not (code_hit or name_overlap or maker_hit):
             return None
-        confidence = 90 + (5 if code_hit else 0) + (3 if name_hit else 0) + (2 if maker_hit else 0)
+        confidence = 90 + (5 if code_hit else 0) + (3 if name_overlap else 0) + (2 if maker_hit else 0)
         if strength_conflict:
             confidence -= 15
             reasons.append("Strength differs from the alert: check the pack")
@@ -116,11 +144,13 @@ def score(alert: AlertFacts, holding: HoldingFacts) -> Decision | None:
 
     if holding.lot_key and alert.lot_keys and not alert.all_lots:
         return None  # The holding's batch is known and is not affected.
-    if strength_conflict:
+    if strength_conflict or (maker_conflict and not code_hit):
         return None
-    if maker_conflict and not code_hit:
+    if not (code_hit or product_overlap):
         return None
-    if not (code_hit or name_hit):
+    brand_hit = alert.alert_type in FALSIFIED_TYPES and bool(product_overlap)
+    identity = code_hit or maker_hit or brand_hit or (not holding.manufacturer and not alert.manufacturer)
+    if strict and not identity:
         return None
 
     if alert.all_lots:
@@ -132,15 +162,14 @@ def score(alert: AlertFacts, holding: HoldingFacts) -> Decision | None:
     else:
         reasons.insert(0, "No batch number is recorded for this item: check the pack against the listed batches")
         confidence = 55
-
     if code_hit:
         confidence += 12
     if maker_hit:
         confidence += 8
-    elif not maker_known and alert.manufacturer and alert.alert_type not in FALSIFIED_TYPES:
-        confidence -= 7
-        reasons.append("Manufacturer is not recorded for this item")
-    return Decision("product", max(40, min(confidence, 89)), reasons)
+    if not identity:
+        confidence -= 15
+        reasons.append("Same product name, but the manufacturer could not be compared: check the pack")
+    return Decision("product", max(30, min(confidence, 89)), reasons)
 
 
 # --------------------------------------------------------------------------- persistence
@@ -216,3 +245,27 @@ def match_holdings(session: Session, holdings: Iterable[Holding]) -> list[uuid.U
                 if match_id:
                     created.append(match_id)
     return created
+
+
+def rescore_open_matches(session: Session) -> tuple[int, int]:
+    """Re-apply the current rules to open matches. Returns (updated, removed).
+
+    Open matches nobody has acted on are deleted when they no longer qualify;
+    resolved matches are history and are left alone.
+    """
+    updated = removed = 0
+    matches = session.scalars(
+        select(Match)
+        .where(Match.status == "open")
+        .options(selectinload(Match.alert).selectinload(Alert.lots), selectinload(Match.holding))
+    ).all()
+    for match in matches:
+        decision = score(AlertFacts.from_alert(match.alert), HoldingFacts.from_holding(match.holding))
+        if decision is None:
+            session.delete(match)
+            removed += 1
+        elif (decision.level, decision.confidence, decision.reasons) != (match.level, match.confidence, match.reasons):
+            match.level, match.confidence, match.reasons = decision.level, decision.confidence, decision.reasons
+            updated += 1
+    session.flush()
+    return updated, removed

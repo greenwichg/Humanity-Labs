@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     openfda_api_key: str = ""
     mhra_max_items: int = 400
     health_canada_detail_days: int = 120
-    health_canada_detail_limit: int = 60
+    health_canada_detail_limit: int = 150  # alert pages read per run; older alerts are filled in over successive runs
     http_timeout_seconds: float = 30.0
     http_user_agent: str = "Batchlight/0.1 (medicine safety alerts; +https://github.com/greenwichg/Humanity-Labs)"
 

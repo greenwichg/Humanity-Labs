@@ -146,3 +146,18 @@ def test_archived_holdings_are_not_matched(client, ingest, db):
     ingest("us-fda-drug")
     assert count(db, Match) == 0
     assert count(db, AlertLot) > 0
+
+
+def test_health_canada_summary_refresh_keeps_page_details(ingest, db, monkeypatch):
+    from batchlight.config import get_settings
+
+    ingest("ca-health-canada")
+    alert = db.scalar(select(Alert).where(Alert.title.like("Cyclophosphamide%")))
+    assert alert.lot_count == 1 and alert.raw["detail_fetched"] is True
+    # Next run fetches no pages at all: the stored batches and company must survive.
+    monkeypatch.setattr(get_settings(), "health_canada_detail_limit", 0)
+    again = ingest("ca-health-canada")
+    assert again.updated == 0
+    db.expire_all()
+    alert = db.scalar(select(Alert).where(Alert.title.like("Cyclophosphamide%")))
+    assert [lot.lot for lot in alert.lots] == ["7Z10346A"] and alert.manufacturer == "Marcan Pharmaceuticals Inc"

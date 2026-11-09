@@ -12,9 +12,12 @@ from datetime import date, timedelta
 
 import httpx
 from bs4 import BeautifulSoup
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..lots import LotRef, batch_rows_from_html
+from ..models import Alert, Source
 from ..text import lot_key, truncate
 from .base import AlertRecord, SourceAdapter, get_with_retry, parse_date, register
 
@@ -72,12 +75,27 @@ def map_record(item: dict) -> AlertRecord:
         product_names=[product] if product else [],
         reason=clean(item.get("Issue")) or None,
         product_description=truncate(clean(item.get("What you should do")), 2000) or None,
+        partial=True,
         raw={k: item.get(k) for k in ("NID", "Organization", "Category", "Recall class", "Last updated", "Archived")},
     )
 
 
+def company_from_page(soup: BeautifulSoup) -> str | None:
+    """First line of the 'Companies' block: the name, without the address lines that follow."""
+    block = soup.select_one(".field--name-field-companies")
+    if block is None:
+        return None
+    for line in block.get_text("\n").splitlines():
+        line = " ".join(line.split()).strip(" ,")
+        if line:
+            return line[:200]
+    return None
+
+
 def enrich_from_page(record: AlertRecord, html: str) -> AlertRecord:
     """Add lot numbers, products, DINs and the recalling company from the alert page."""
+    record.partial = False
+    record.raw["detail_fetched"] = True
     rows = batch_rows_from_html(html)
     if rows:
         record.lots = [LotRef(lot=r.batch, key=lot_key(r.batch), expiry_text=r.expiry) for r in rows]
@@ -89,14 +107,13 @@ def enrich_from_page(record: AlertRecord, html: str) -> AlertRecord:
         for r in rows:
             authorisation = r.cells.get("market authorization") or r.cells.get("din") or ""
             record.product_codes += re.findall(r"\b\d{8}\b", authorisation)
-    text = " ".join(BeautifulSoup(html, "html.parser").get_text(" ").split())
+    soup = BeautifulSoup(html, "html.parser")
+    text = " ".join(soup.get_text(" ").split())
     published = re.search(r"Original published date:\s*(\d{4}-\d{2}-\d{2})", text)
     if published:
         record.initiated_at = parse_date(published.group(1))
     if not record.manufacturer:
-        company = re.search(r"\bCompanies\s+(.+?)(?:\s+\d|\s+Published by)", text)
-        if company:
-            record.manufacturer = company.group(1).strip()
+        record.manufacturer = company_from_page(soup)
     if re.search(r"\ball lots\b", text, re.IGNORECASE) and not record.lots:
         record.all_lots = True
     return record
@@ -109,6 +126,18 @@ class HealthCanadaRecalls(SourceAdapter):
     country_code = "CA"
     homepage_url = "https://recalls-rappels.canada.ca/en"
 
+    def __init__(self) -> None:
+        self._enriched: dict[str, str] = {}
+
+    def prepare(self, session: Session, source: Source) -> None:
+        """Remember which alerts already have page details, and for which 'Last updated' date."""
+        rows = session.execute(
+            select(Alert.external_id, Alert.raw["Last updated"].astext).where(
+                Alert.source_id == source.id, Alert.raw["detail_fetched"].astext == "true"
+            )
+        )
+        self._enriched = {external_id: updated or "" for external_id, updated in rows}
+
     def fetch(self, client: httpx.Client, since: date) -> Iterator[AlertRecord]:
         settings = get_settings()
         items = get_with_retry(client, OPEN_DATA_URL).json()
@@ -120,8 +149,12 @@ class HealthCanadaRecalls(SourceAdapter):
         details_fetched = 0
         for item in records:
             record = map_record(item)
-            wants_detail = (record.published_at or date.min) >= detail_cutoff and item.get("URL", "").startswith(
-                "https://recalls-rappels.canada.ca/"
+            already = self._enriched.get(str(item["NID"]))
+            # New alerts, and recent alerts updated since their page was read. Older alerts without details are
+            # filled in over successive runs, newest first, within the per-run limit.
+            wants_detail = item.get("URL", "").startswith("https://recalls-rappels.canada.ca/") and (
+                already is None
+                or (already != (item.get("Last updated") or "") and (record.published_at or date.min) >= detail_cutoff)
             )
             if wants_detail and details_fetched < settings.health_canada_detail_limit:
                 details_fetched += 1

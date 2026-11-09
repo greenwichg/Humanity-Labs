@@ -75,6 +75,14 @@ def dashboard(request: Request, db: DB, auth: OrgAuth):
     holdings = (
         db.scalar(select(func.count()).select_from(Holding).where(Holding.org_id == org_id, Holding.archived_at.is_(None))) or 0
     )
+    without_maker = (
+        db.scalar(
+            select(func.count())
+            .select_from(Holding)
+            .where(Holding.org_id == org_id, Holding.archived_at.is_(None), Holding.manufacturer.is_(None))
+        )
+        or 0
+    )
     without_batch = (
         db.scalar(
             select(func.count())
@@ -91,6 +99,7 @@ def dashboard(request: Request, db: DB, auth: OrgAuth):
             "open_count": len(open_matches),
             "holdings": holdings,
             "without_batch": without_batch,
+            "without_maker": without_maker,
             "stats": metrics.match_metrics(db, org_id),
             "sources": sources_status(db),
         },

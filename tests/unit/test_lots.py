@@ -147,3 +147,13 @@ def test_health_canada_table_prefers_product_name_and_keeps_cells():
         "Marcan Pharmaceuticals Inc",
     )
     assert row.cells["market authorization"] == "DIN 02560216"
+
+
+def test_health_canada_company_block():
+    from bs4 import BeautifulSoup
+
+    from batchlight.ingest.healthcanada import company_from_page
+
+    html = open("tests/fixtures/hc_detail_cyclophosphamide.html", encoding="utf-8").read()
+    assert company_from_page(BeautifulSoup(html, "html.parser")) == "Marcan Pharmaceuticals Inc"
+    assert company_from_page(BeautifulSoup("<p>Companies Published by Health Canada</p>", "html.parser")) is None

@@ -50,11 +50,13 @@ class AlertRecord:
     lots_text: str | None = None
     regulator: str | None = None  # overrides the source's regulator (curated alerts)
     country_code: str | None = None  # overrides the source's country (curated alerts)
+    partial: bool = False  # summary only: keep details (batches, company, codes) already stored
     raw: dict[str, Any] = field(default_factory=dict)
 
     def content_hash(self) -> str:
         payload = asdict(self)
         payload.pop("raw")
+        payload.pop("partial")
         return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
@@ -69,6 +71,9 @@ class SourceAdapter(ABC):
     @abstractmethod
     def fetch(self, client: httpx.Client, since: date) -> Iterator[AlertRecord]:
         """Yield alerts published or updated on or after ``since``."""
+
+    def prepare(self, session: Session, source: Source) -> None:  # noqa: B027 - optional hook
+        """Called before ``fetch`` so an adapter can look at what is already stored."""
 
 
 class ManualSource(SourceAdapter):
@@ -175,8 +180,11 @@ def upsert_alert(
     session: Session, source: Source, record: AlertRecord, created_by: uuid.UUID | None = None
 ) -> tuple[Alert, bool, bool]:
     """Insert or update an alert. Returns (alert, created, changed)."""
-    digest = record.content_hash()
     alert = session.scalar(select(Alert).where(Alert.source_id == source.id, Alert.external_id == record.external_id))
+    if record.partial and alert is not None:
+        _keep_stored_details(record, alert)
+    _normalise(record)
+    digest = record.content_hash()
     created = alert is None
     if alert is not None and alert.content_hash == digest:
         return alert, False, False
@@ -191,11 +199,11 @@ def upsert_alert(
     alert.status = truncate(record.status, 100) or None
     alert.title = truncate(record.title, 500) or record.external_id
     alert.product_description = record.product_description
-    alert.product_names = [truncate(n, 300) for n in dict.fromkeys(n for n in record.product_names if n and n.strip())]
-    alert.active_ingredients = list(dict.fromkeys(i.strip() for i in record.active_ingredients if i and i.strip()))
+    alert.product_names = record.product_names
+    alert.active_ingredients = record.active_ingredients
     alert.manufacturer = record.manufacturer.strip() if record.manufacturer else None
     alert.manufacturer_key = manufacturer_key(record.manufacturer) or None
-    alert.product_codes = list(dict.fromkeys(c for c in record.product_codes if c))
+    alert.product_codes = record.product_codes
     alert.name_tokens = name_tokens(*alert.product_names, *alert.active_ingredients)
     alert.reason = record.reason
     alert.distribution = record.distribution
@@ -222,6 +230,30 @@ def upsert_alert(
     return alert, created, True
 
 
+def _unique(values: list[str | None]) -> list[str]:
+    return list(dict.fromkeys(v.strip() for v in values if v and v.strip()))
+
+
+def _normalise(record: AlertRecord) -> None:
+    """Canonical list fields, so the content hash only changes when the content does."""
+    record.product_names = [truncate(n, 300) for n in _unique(record.product_names)]
+    record.active_ingredients = _unique(record.active_ingredients)
+    record.product_codes = _unique(record.product_codes)
+
+
+def _keep_stored_details(record: AlertRecord, alert: Alert) -> None:
+    """A summary-only record must not erase details fetched by an earlier run."""
+    if not record.lots and alert.lots:
+        record.lots = [LotRef(lot=lot.lot, key=lot.lot_key, expiry_text=lot.expiry_text) for lot in alert.lots]
+        record.lots_text = alert.lots_text
+    record.all_lots = record.all_lots or alert.all_lots
+    record.manufacturer = record.manufacturer or alert.manufacturer
+    record.initiated_at = record.initiated_at or alert.initiated_at
+    record.product_codes = list(dict.fromkeys([*record.product_codes, *alert.product_codes]))
+    record.product_names = list(dict.fromkeys([*record.product_names, *alert.product_names]))
+    record.raw = {**(alert.raw or {}), **record.raw, "detail_fetched": (alert.raw or {}).get("detail_fetched", False)}
+
+
 def run_source(
     factory: sessionmaker[Session], adapter: SourceAdapter, client: httpx.Client | None = None, notify: bool = True
 ) -> IngestionRun:
@@ -244,6 +276,7 @@ def run_source(
         if source.last_success_at:
             since = max(settings.ingest_since, source.last_success_at.date() - timedelta(days=settings.ingest_overlap_days))
         try:
+            adapter.prepare(session, source)
             changed: list[uuid.UUID] = []
             for record in adapter.fetch(client, since):
                 run.fetched += 1

@@ -128,7 +128,7 @@ def check_batch(session: Session, batch: str, product: str | None = None, manufa
     for alert in candidates.values():
         batch_match = bool(key) and key in {lot.lot_key for lot in alert.lots}
         if product:
-            decision = score(AlertFacts.from_alert(alert), holding)
+            decision = score(AlertFacts.from_alert(alert), holding, strict=False)
             if decision:
                 results.append(CheckResult(alert, decision, batch_match))
         elif batch_match:

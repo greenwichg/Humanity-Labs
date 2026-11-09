@@ -38,6 +38,9 @@
 </section>
 {% endif %}
 
+{% if without_maker %}
+<p class="mt-4 rounded-lg bg-ink-100 px-4 py-3 text-sm text-ink-800">{{ without_maker }} item{{ "s have" if without_maker != 1 else " has" }} no manufacturer recorded. Recalls that cover every batch of one company's product can only be matched when the manufacturer is known. <a href="/app/inventory">Add manufacturers</a></p>
+{% endif %}
 {% if without_batch %}
 <p class="mt-4 rounded-lg bg-beam-50 px-4 py-3 text-sm text-ink-800 ring-1 ring-beam-200">{{ without_batch }} item{{ "s have" if without_batch != 1 else " has" }} no batch number. Batchlight can only give product-level warnings for {{ "them" if without_batch != 1 else "it" }}. <a href="/app/inventory">Add batch numbers</a></p>
 {% endif %}

@@ -121,11 +121,12 @@ Matching is deterministic and explainable. Every match stores human-readable rea
 1. **Normalise batch codes.** Uppercase, remove spaces and separators, and strip labels such as "LOT", "BATCH" and "B.NO". `Lot # AB-123/4` becomes `AB1234`.
 2. **Find candidates in SQL.** Holdings whose `lot_key` equals one of the alert's batch keys, plus holdings whose `name_tokens` overlap the alert's (`&&` on GIN-indexed arrays). For a new holding, the same query runs in reverse against alerts from the last few years.
 3. **Score in Python.**
-   - **Product evidence:** product code overlap; the share of the holding's significant name tokens found in the alert; manufacturer similarity; and strength compatibility.
-   - **Batch-level match:** the batch matches and there is at least one piece of product evidence. Short codes collide across manufacturers, so a batch match alone is not enough.
-   - **Product-level match:** the alert covers all lots or lists none, or the holding has no batch recorded, and product evidence is strong. The holder is asked to check the pack.
-   - **No match:** the holding's batch is known and not on the alert's list.
-4. **Record.** Matches are unique per alert and holding, so re-running is idempotent. A user can mark a false match, which closes it and feeds the precision metric.
+   - **Name evidence:** every distinctive word of the holding's name must appear in the alert. Salts, counter-ions and generic words ("sodium", "chloride", "hydrochloride", "vitamin") don't count on their own, so "Levothyroxine Sodium" needs "levothyroxine". A name made only of such words, such as "Sodium Chloride 0.9%", must match completely.
+   - **Batch-level match:** the batch number is on the alert's list, and a product code, the product name or the manufacturer agrees. Short codes collide across unrelated products, so a batch number alone is never enough. A strength difference lowers confidence and adds a "check the pack" note.
+   - **No match:** the holding's batch is known and is not on the alert's list.
+   - **Product-level match:** the alert covers all batches, lists none, or the holding has no batch recorded. The alert's *product name*, not just a shared ingredient, must cover the holding's name, with no conflicting strength or manufacturer. Stock matching also needs identity evidence: a product code, a matching manufacturer, or the brand name for falsified and substandard alerts. The public batch check relaxes the identity requirement and labels such results "check the pack".
+4. **Re-score when rules change.** `python -m batchlight.cli rescore` re-applies the current rules to open matches, updating or removing them. Resolved matches are kept as history.
+5. **Record.** Matches are unique per alert and holding, so re-running is idempotent. A user can mark a false match, which closes it and feeds the precision metric.
 
 ## API
 
