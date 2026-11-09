@@ -8,7 +8,7 @@
 
 {% macro field(name, label, form={}, errors={}, type="text", hint=None, required=False, placeholder="", autocomplete=None, attrs="") -%}
 <div>
-  <label for="f-{{ name }}" class="label">{{ label }}{% if not required %} <span class="font-normal text-ink-400">(optional)</span>{% endif %}</label>
+  <label for="f-{{ name }}" class="label">{{ label }}{% if not required %} <span class="font-normal text-ink-500">(optional)</span>{% endif %}</label>
   <input id="f-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ form.get(name, '') if type != 'password' else '' }}"
          class="input {% if errors.get(name) %}input-error{% endif %}" {% if required %}required{% endif %}
          {% if placeholder %}placeholder="{{ placeholder }}"{% endif %} {% if autocomplete %}autocomplete="{{ autocomplete }}"{% endif %}
@@ -21,7 +21,7 @@
 
 {% macro textarea(name, label, form={}, errors={}, hint=None, required=False, rows=3, placeholder="") -%}
 <div>
-  <label for="f-{{ name }}" class="label">{{ label }}{% if not required %} <span class="font-normal text-ink-400">(optional)</span>{% endif %}</label>
+  <label for="f-{{ name }}" class="label">{{ label }}{% if not required %} <span class="font-normal text-ink-500">(optional)</span>{% endif %}</label>
   <textarea id="f-{{ name }}" name="{{ name }}" rows="{{ rows }}" class="input {% if errors.get(name) %}input-error{% endif %}" {% if required %}required{% endif %} {% if placeholder %}placeholder="{{ placeholder }}"{% endif %} {% if errors.get(name) %}aria-invalid="true" aria-describedby="e-{{ name }}"{% endif %}>{{ form.get(name, '') }}</textarea>
   {% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
   {% if errors.get(name) %}<p id="e-{{ name }}" class="field-error">{{ errors[name] }}</p>{% endif %}
@@ -52,12 +52,16 @@
 {% endif %}
 {%- endmacro %}
 
+{% macro alert_source(alert) -%}
+{{ alert.country_code|flag }} {{ alert.regulator }}{% if alert.evidence == "report" %} action, as reported by {{ source_host(alert.source_url) }}{% endif %} · {{ alert.published_at|date }}
+{%- endmacro %}
+
 {% macro alert_row(alert) -%}
 <li class="card stripe-{{ alert.severity }} overflow-hidden">
   <a href="/alerts/{{ alert.id }}" class="block p-4 no-underline hover:bg-ink-50 sm:p-5">
     <div class="flex flex-wrap items-center gap-2">
-      {{ severity(alert.severity) }} {{ alert_type(alert.alert_type) }}
-      <span class="text-xs text-ink-500">{{ alert.country_code|flag }} {{ alert.regulator }} · {{ alert.published_at|date }}</span>
+      {{ severity(alert.severity) }} {{ alert_type(alert.alert_type) }} {{ evidence(alert.evidence) }}
+      <span class="text-xs text-ink-500">{{ alert_source(alert) }}</span>
     </div>
     <p class="mt-2 font-semibold text-ink-950">{{ alert.title }}</p>
     <p class="mt-1 text-sm text-ink-600">
@@ -77,8 +81,17 @@
 {%- endmacro %}
 
 {% macro evidence(kind) -%}
-{% set styles = {"official": "bg-emerald-100 text-emerald-900", "study": "bg-sky-100 text-sky-900", "report": "bg-ink-100 text-ink-800", "provider": "bg-beam-100 text-ink-800"} %}
-<span class="badge {{ styles.get(kind, 'bg-ink-100 text-ink-800') }}">{{ evidence_labels.get(kind, kind) }}</span>
+{% set styles = {"official": "bg-emerald-100 text-emerald-900", "lab_test": "bg-emerald-100 text-emerald-900", "study": "bg-sky-100 text-sky-900", "report": "bg-ink-100 text-ink-800", "provider": "bg-beam-100 text-ink-800"} %}
+<span class="badge {{ styles.get(kind, 'bg-ink-100 text-ink-800') }}" title="{{ EVIDENCE_HELP.get(kind, '') }}">{{ EVIDENCE_LABELS.get(kind, kind) }}</span>
+{%- endmacro %}
+
+{% macro evidence_legend(kinds=("official", "lab_test", "report", "study", "provider")) -%}
+<details class="mt-4 text-sm text-ink-600">
+  <summary class="cursor-pointer font-medium text-ink-800">What the labels mean</summary>
+  <dl class="mt-2 space-y-2">
+    {% for kind in kinds %}<div><dt class="inline">{{ evidence(kind) }}</dt> <dd class="inline">{{ EVIDENCE_HELP[kind] }}</dd></div>{% endfor %}
+  </dl>
+</details>
 {%- endmacro %}
 
 {% macro finding(f) -%}
@@ -92,9 +105,8 @@
 <li class="card stripe-{{ alert.severity }} overflow-hidden">
   <a href="/food/recalls/{{ alert.id }}" class="block p-4 no-underline hover:bg-ink-50 sm:p-5">
     <div class="flex flex-wrap items-center gap-2">
-      {{ severity(alert.severity) }}
-      {% if alert.source_id == "curated" %}<span class="tag">Added by curators</span>{% endif %}
-      <span class="text-xs text-ink-500">{{ alert.country_code|flag }} {{ alert.regulator }} · {{ alert.published_at|date }}</span>
+      {{ severity(alert.severity) }} {{ evidence(alert.evidence) }}
+      <span class="text-xs text-ink-500">{{ alert_source(alert) }}</span>
     </div>
     <p class="mt-2 font-semibold text-ink-950">{{ alert.title }}</p>
     {% if alert.reason %}<p class="mt-1 text-sm text-ink-600">{{ alert.reason[:160] }}{% if alert.reason|length > 160 %}…{% endif %}</p>{% endif %}

@@ -7,11 +7,10 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from pydantic import ValidationError
-from sqlalchemy import or_, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import selectinload
 
 from ...food.knowledge import (
-    EVIDENCE_LABELS,
     HOME_TESTING_GENERAL,
     TESTING_FACTS,
     TOPICS,
@@ -45,7 +44,12 @@ FORM_FIELDS = (
     "description",
     "contact_email",
 )
-CONTEXT = {"evidence_labels": EVIDENCE_LABELS}
+# Plain-language messages for the report form, instead of the validator's technical wording.
+REQUIRED_MESSAGES = {
+    "product_name": "Type the product name as it is printed on the pack.",
+    "description": "Please tell us a little more about what happened (at least 10 characters).",
+}
+EMPTY_OR_SHORT = {"missing", "string_too_short", "string_type"}
 
 
 def food_alert_or_404(db, alert_id: uuid.UUID) -> Alert:
@@ -69,7 +73,6 @@ def food_home(request: Request, db: DB, auth: OptionalAuth):
         request,
         "food/home.html",
         {
-            **CONTEXT,
             "topics": TOPICS,
             "india": india,
             "latest": latest,
@@ -89,7 +92,6 @@ def recalls(request: Request, db: DB, auth: OptionalAuth, q: str = "", country: 
         request,
         "food/recalls.html",
         {
-            **CONTEXT,
             "page": result,
             "q": q,
             "country": country,
@@ -111,7 +113,6 @@ def recall_detail(request: Request, alert_id: uuid.UUID, db: DB, auth: OptionalA
         request,
         "food/recall_detail.html",
         {
-            **CONTEXT,
             "alert": alert,
             "lots": first_lots(db, [alert.id], 300)[alert.id],
             "country": country_name(alert.country_code) if alert.country_code else None,
@@ -121,7 +122,7 @@ def recall_detail(request: Request, alert_id: uuid.UUID, db: DB, auth: OptionalA
 
 @router.get("/reported")
 def topics(request: Request, auth: OptionalAuth):
-    return render(request, "food/topics.html", {**CONTEXT, "topics": TOPICS, "home_testing": HOME_TESTING_GENERAL})
+    return render(request, "food/topics.html", {"topics": TOPICS, "home_testing": HOME_TESTING_GENERAL})
 
 
 @router.get("/reported/{slug}")
@@ -141,7 +142,7 @@ def topic(request: Request, slug: str, db: DB, auth: OptionalAuth):
             .limit(5)
             .options(selectinload(Alert.source))
         ).all()
-    return render(request, "food/topic.html", {**CONTEXT, "topic": item, "related": related})
+    return render(request, "food/topic.html", {"topic": item, "related": related})
 
 
 @router.get("/verify")
@@ -155,7 +156,6 @@ def verify(request: Request, db: DB, auth: OptionalAuth, licence: str = "", barc
         request,
         "food/verify.html",
         {
-            **CONTEXT,
             "licence": licence[:40],
             "barcode": barcode[:40],
             "licence_result": licence_result,
@@ -166,9 +166,23 @@ def verify(request: Request, db: DB, auth: OptionalAuth, licence: str = "", barc
     )
 
 
+def friendly_error(error: dict) -> str:
+    """A short, plain message for one validation error on the report form."""
+    field = str(error["loc"][0]) if error["loc"] else ""
+    kind = error["type"]
+    if field in REQUIRED_MESSAGES and kind in EMPTY_OR_SHORT:
+        return REQUIRED_MESSAGES[field]
+    if kind == "string_too_long":
+        return f"Please shorten this to {error['ctx']['max_length']:,} characters or fewer."
+    if kind == "value_error":
+        return str(error["msg"]).removeprefix("Value error, ")
+    if field == "country_code":
+        return "Choose a country from the list."
+    return "Please check this answer."
+
+
 def report_context(form: dict | None = None, errors: dict | None = None) -> dict:
     return {
-        **CONTEXT,
         "form": form or {"country_code": "IN"},
         "errors": errors or {},
         "problems": PROBLEM_LABELS,
@@ -197,7 +211,9 @@ async def submit_report(request: Request, db: DB, auth: OptionalAuth, background
     try:
         data = ReportInput(**values)
     except ValidationError as exc:
-        errors = {str(e["loc"][0]) if e["loc"] else "form": e["msg"].removeprefix("Value error, ") for e in exc.errors()}
+        errors = {}
+        for e in exc.errors():
+            errors.setdefault(str(e["loc"][0]) if e["loc"] else "form", friendly_error(e))
         return render(request, "food/report.html", report_context(values, errors), status_code=422)
     ip = client_ip(request)
     if over_limit(db, ip_fingerprint(ip)):
@@ -222,12 +238,12 @@ async def submit_report(request: Request, db: DB, auth: OptionalAuth, background
             report.contact_email,
             f"We received your food safety report {report.reference}",
             f"Thank you for your report to Humanity Labs. Your reference is {report.reference}.\n\n"
-            "A curator will review it. We do not publish individual reports. To make an official complaint, use "
+            "Our team will review it. We do not publish individual reports. To make an official complaint, use "
             "FSSAI's Food Safety Connect app or contact your state food safety department.\n\n"
             "If anyone is unwell, please seek medical care.\n\n"
             "If you did not send this report, you can ignore this email.",
         )
-    return render(request, "food/report_thanks.html", {**CONTEXT, "report": report, "problem": PROBLEM_LABELS[report.problem]})
+    return render(request, "food/report_thanks.html", {"report": report, "problem": PROBLEM_LABELS[report.problem]})
 
 
 @router.get("/testing")
@@ -242,12 +258,14 @@ def testing(request: Request, db: DB, auth: OptionalAuth, country: str = "IN", t
     if city:
         stmt = stmt.where(or_(TestingLab.city.ilike(f"%{city}%"), TestingLab.region.ilike(f"%{city}%")))
     labs = db.scalars(stmt.order_by(TestingLab.region, TestingLab.city, TestingLab.name).limit(200)).all()
+    # Whether any lab is listed at all, so an empty directory is not blamed on the filters.
+    any_labs = bool(labs) or db.scalar(select(exists().where(TestingLab.active.is_(True))))
     return render(
         request,
         "food/testing.html",
         {
-            **CONTEXT,
             "labs": labs,
+            "any_labs": any_labs,
             "country": country,
             "test": test,
             "city": city,

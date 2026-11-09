@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from urllib.parse import urlparse
 
 _LOT_LABEL_RE = re.compile(
     r"^(?:BATCH\s?NUMBERS?|LOT\s?NUMBERS?|BATCH\s?NO\.?|LOT\s?NO\.?|B\.?\s?NO\.?|BATCH(?:ES)?|LOTS?)(?=[\s#:.\-])[\s#:.\-]*",
@@ -202,3 +203,30 @@ def extract_product_codes(*parts: str | None) -> list[str]:
 def truncate(value: str | None, length: int) -> str:
     value = " ".join((value or "").split())
     return value if len(value) <= length else value[: length - 1].rstrip() + "…"
+
+
+# Government, parliamentary and intergovernmental domains. A link anywhere else is a news, NGO or other report.
+OFFICIAL_DOMAINS = (
+    "gov",
+    "gov.in",
+    "nic.in",
+    "sansad.in",
+    "gc.ca",
+    "canada.ca",
+    "gov.uk",
+    "gov.hk",
+    "gov.sg",
+    "who.int",
+    "europa.eu",
+)
+
+
+def source_kind(url: str | None) -> str:
+    """Return "official" for a government, Parliament or WHO link, otherwise "report" (news, NGO or another publisher)."""
+    host = (urlparse(url or "").hostname or "").lower()
+    return "official" if any(host == d or host.endswith("." + d) for d in OFFICIAL_DOMAINS) else "report"
+
+
+def source_host(url: str | None) -> str:
+    host = (urlparse(url or "").hostname or "").lower()
+    return host.removeprefix("www.")

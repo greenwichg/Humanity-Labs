@@ -46,9 +46,13 @@ def test_barcode_variants_cover_leading_zero_forms():
 
 
 def test_fssai_licence_format():
-    assert check_fssai_licence("1001 2345 6789 01").well_formed is True
+    good = check_fssai_licence("1001 2345 6789 01")
+    assert good.well_formed is True
+    # A well-formed number is not reassurance: only FSSAI's own search shows whose licence it is.
+    assert "That does not show it is real" in good.message and "FoSCoS" in good.message
     bad = check_fssai_licence("1234567")
-    assert bad.well_formed is False and "14 digits" in bad.message
+    assert bad.well_formed is False and "14 digits" in bad.message and "Check you copied all 14 digits" in bad.message
+    assert "warning sign" not in bad.message
     assert check_fssai_licence("").well_formed is False
 
 

@@ -16,10 +16,10 @@
       <button class="btn-primary" type="submit">Check</button>
     </form>
     {% if licence_result %}
-    <div role="status" class="mt-3 rounded-lg p-3 text-sm {{ 'bg-emerald-50 text-emerald-950' if licence_result.well_formed else 'bg-red-50 text-red-900' }}">
+    <div role="status" class="mt-3 rounded-lg p-3 text-sm {{ 'bg-ink-100 text-ink-900' if licence_result.well_formed else 'bg-red-50 text-red-900' }}">
       <p class="font-semibold">{{ licence_result.message }}</p>
       {% if licence_result.well_formed %}
-      <p class="mt-1">To confirm it, search <span class="font-mono">{{ licence_result.digits }}</span> on FSSAI's FoSCoS website (FBO Search) and check that the business name and address match the pack.</p>
+      <p class="mt-1">To confirm it, search <span class="font-mono">{{ licence_result.digits }}</span> on FSSAI's FoSCoS website ("FBO Search", meaning food business search) and check that the business name and address match the pack.</p>
       {% endif %}
     </div>
     {% endif %}
@@ -36,7 +36,7 @@
       <button class="btn-primary" type="submit">Check</button>
     </form>
     {% if barcode_result %}
-    <div role="status" class="mt-3 rounded-lg p-3 text-sm {{ 'bg-emerald-50 text-emerald-950' if barcode_result.valid else 'bg-red-50 text-red-900' }}">
+    <div role="status" class="mt-3 rounded-lg p-3 text-sm {{ 'bg-ink-100 text-ink-900' if barcode_result.valid else 'bg-red-50 text-red-900' }}">
       <p class="font-semibold">{{ barcode_result.message }}</p>
       {% if barcode_result.valid %}
       <p class="mt-1">{{ barcode_result.kind }} barcode.{% if barcode_result.expanded %} Recall notices list this short code in its full form, <span class="font-mono">{{ barcode_result.expanded }}</span>, so we searched for that.{% endif %} {% if barcode_result.gs1_india %}It starts with 890, the prefix GS1 India issues to companies. This shows where the company registered the barcode, not where the food was made.{% endif %}</p>

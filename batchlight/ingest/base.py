@@ -51,6 +51,7 @@ class AlertRecord:
     regulator: str | None = None  # overrides the source's regulator (curated alerts)
     country_code: str | None = None  # overrides the source's country (curated alerts)
     category: str | None = None  # overrides the source's category (curated alerts)
+    evidence: str = "official"  # what the source link is: official, lab_test or report (see models.EVIDENCES)
     partial: bool = False  # summary only: keep details (batches, company, codes) already stored
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -58,6 +59,8 @@ class AlertRecord:
         payload = asdict(self)
         payload.pop("raw")
         payload.pop("partial")
+        if payload["evidence"] == "official":
+            payload.pop("evidence")  # the default; leaves hashes stored before this field existed unchanged
         return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
@@ -79,13 +82,16 @@ class SourceAdapter(ABC):
 
 
 class ManualSource(SourceAdapter):
-    """Alerts entered by curators from PDF or image notices (CDSCO, NAFDAC, ...)."""
+    """Alerts added by hand, for regulators that publish only PDFs or images (CDSCO, NAFDAC, FSSAI, ...).
+
+    Each one says whether its link is the regulator's own notice, an official lab result or a news report.
+    """
 
     id = "curated"
-    name = "Curated alerts (entered from regulator notices)"
-    regulator = "Various regulators"
+    name = "Added by our team (official notices, official lab results or news reports, each labelled)"
+    regulator = "Humanity Labs team"
     country_code = None
-    homepage_url = "https://github.com/greenwichg/Humanity-Labs/blob/main/docs/PRODUCT.md"
+    homepage_url = "/about"
     automated = False
 
     def fetch(self, client: httpx.Client, since: date) -> Iterator[AlertRecord]:
@@ -197,6 +203,7 @@ def upsert_alert(
     alert.regulator = record.regulator or source.regulator
     alert.country_code = record.country_code or source.country_code or None
     alert.category = record.category or source.category
+    alert.evidence = record.evidence
     alert.alert_type = record.alert_type
     alert.severity = record.severity
     alert.classification = truncate(record.classification, 100) or None

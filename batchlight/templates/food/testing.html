@@ -4,28 +4,28 @@
 {% block body %}
 <div class="container-page py-8">
   <h1 class="text-2xl font-bold sm:text-3xl">Get food tested</h1>
-  <p class="mt-2 max-w-3xl text-ink-600">Only a properly equipped laboratory can confirm what is in food. Here is how to use one, what it costs, and labs whose accreditation a curator has checked.</p>
+  <p class="mt-2 max-w-3xl text-ink-600">Only a properly equipped laboratory can confirm what is in food. Here is how to choose an accredited lab, what to ask for, and what a test can cost.</p>
 
   <div class="mt-6 grid gap-6 lg:grid-cols-3">
     <div class="space-y-6 lg:col-span-2">
       <section class="card card-pad">
         <h2 class="font-bold">How to get a sample tested in India</h2>
         <ol class="mt-2 list-decimal space-y-2 pl-5 text-ink-700">
-          <li><span class="font-semibold">Choose an accredited lab.</span> Look for a lab accredited by NABL for the test you need, and preferably notified by FSSAI. Check its certificate number on NABL's website.</li>
+          <li><span class="font-semibold">Choose an accredited lab.</span> Choose a lab accredited by NABL (the National Accreditation Board for Testing and Calibration Laboratories) for the exact test you need, and preferably one notified (approved) by FSSAI for food testing. On NABL's website, check that your test is in the lab's accredited scope and that its certificate is valid.</li>
           <li><span class="font-semibold">Ask for a specific test.</span> "Is it adulterated?" can't be tested. Ask for named tests: for example pesticide residues, lead, aflatoxin, Salmonella, or a named adulterant.</li>
           <li><span class="font-semibold">Keep the sample sealed.</span> Use an unopened pack where possible, and note the batch number, barcode and where you bought it.</li>
           <li><span class="font-semibold">Read the report against the legal limit.</span> A result is only meaningful compared with the limit for that food.</li>
         </ol>
-        <p class="mt-3 text-sm text-ink-600">The Food Safety and Standards Act, 2006 (Section 40) also lets a buyer have food analysed by a food analyst for a fee. Ask your state food safety department how to do this.</p>
+        <p class="mt-3 text-sm text-ink-600">Under Section 40 of the Food Safety and Standards Act, 2006, anyone who buys food can pay a fee and have it analysed by a Food Analyst appointed by the state's Commissioner of Food Safety. You must tell the seller when you buy the food that you plan to have it analysed. If the report shows the food does not comply with the law, your fee is refunded and the report goes to the Designated Officer for action. A report from a private lab is not a Section 40 report. Ask your state food safety department how to do this.</p>
         <div class="mt-3 flex flex-wrap gap-3 text-sm">
-          <a href="https://nabl-india.org/" rel="noopener noreferrer" target="_blank">NABL accredited laboratories</a>
-          <a href="https://www.fssai.gov.in/" rel="noopener noreferrer" target="_blank">FSSAI notified laboratories</a>
+          <a href="https://nabl-india.org/lab-accreditation/" rel="noopener noreferrer" target="_blank">Find an NABL-accredited lab</a>
+          <a href="https://www.fssai.gov.in/" rel="noopener noreferrer" target="_blank">FSSAI's website</a>
         </div>
       </section>
 
-      <section>
-        <h2 class="text-lg font-bold">Labs checked by our curators</h2>
-        <form method="get" class="card card-pad mt-3 grid gap-3 sm:grid-cols-4 sm:items-end">
+      <section id="labs">
+        <h2 class="text-lg font-bold">Labs checked by our team</h2>
+        <form method="get" action="#labs" class="card card-pad mt-3 grid gap-3 sm:grid-cols-4 sm:items-end">
           <div><label for="t-country" class="label">Country</label>
             <select id="t-country" name="country" class="input"><option value="">Any</option>{% for code, name in countries %}<option value="{{ code }}" {% if code == country %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
           <div><label for="t-test" class="label">Test</label>
@@ -50,8 +50,13 @@
         </ul>
         {% else %}
         <div class="card card-pad mt-3 text-sm text-ink-700">
-          <p class="font-semibold text-ink-900">No checked labs match yet.</p>
-          <p class="mt-1">We only list a lab after a curator has checked its accreditation against an official source. Until then, use NABL's and FSSAI's official lists linked above.</p>
+          {% if not any_labs %}
+          <p class="font-semibold text-ink-900">We have not listed any labs yet.</p>
+          <p class="mt-1">We only list a lab after checking its accreditation and whether it accepts samples from the public. Until then, use NABL's lab search linked above to find a lab accredited for the test you need.</p>
+          {% else %}
+          <p class="font-semibold text-ink-900">No listed lab matches these filters.</p>
+          <p class="mt-1">Use NABL's lab search linked above to find a lab accredited for the test you need.</p>
+          {% endif %}
         </div>
         {% endif %}
       </section>

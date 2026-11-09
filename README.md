@@ -1,13 +1,13 @@
 # Humanity Labs
 
-**A consumer-first safety platform: check medicines and food against official safety alerts.**
+**A consumer-first safety platform: check medicines and food against safety alerts and recalls.**
 
 Regulators and scientists regularly find medicines and food that are contaminated, mislabelled, sub-standard or fake. Their findings are scattered across websites, PDFs and press releases and rarely reach the people holding the product. Humanity Labs gathers them, links every one to its source, and makes them easy to check. It has two modules:
 
-- **Medicines (Batchlight).** Batch-level medicine and device alerts from the US FDA, UK MHRA, Health Canada and the WHO. Anyone can check a batch number. Pharmacies, clinics and distributors can list their stock and be told when a regulator flags a batch they hold, then record what they did.
-- **Food Safety.** Food recalls from the US FDA and the Canadian Food Inspection Agency plus curated notices from India's FSSAI, searchable by product, brand, batch code or barcode. Plain-language summaries of what official surveys and peer-reviewed studies found in milk, spices, turmeric, oils, honey and more. Pack checks for the FSSAI licence number, the barcode and the label. A report form for suspicious products, and guidance on getting food tested at an accredited lab. See [docs/FOOD_SAFETY.md](docs/FOOD_SAFETY.md).
+- **Medicines (Batchlight).** Batch-level medicine and device alerts from the US FDA, UK MHRA, Health Canada and the WHO, plus a few hand-added Indian alerts. India's CDSCO monthly drug alerts and state drug controllers' notices are not included yet. Anyone can check a batch number. Pharmacies, clinics and distributors can list their stock and be told when a regulator flags a batch they hold, then record what they did.
+- **Food Safety.** Food recalls from the US FDA and the Canadian Food Inspection Agency, plus a few hand-added Indian food safety actions, each labelled as an official notice, an official lab result or a news report. Searchable by product, brand, batch code or barcode. Plain-language summaries of what official tests, peer-reviewed studies and news reports found in milk, spices, turmeric, oils, honey and more. Pack checks for the FSSAI licence number, the barcode and the label. A report form for suspicious products, and guidance on getting food tested at an accredited lab. See [docs/FOOD_SAFETY.md](docs/FOOD_SAFETY.md).
 
-Humanity Labs never claims to detect adulteration. Every finding comes from a regulator, a peer-reviewed study or a credible report, and says which.
+Humanity Labs never claims to detect adulteration. Every alert and finding links to its source and is labelled as an official source, an official lab result, a news or NGO report, a peer-reviewed study or a provider's own information. See [docs/INDIA_COVERAGE.md](docs/INDIA_COVERAGE.md) for what India coverage exists today and what is missing.
 
 ## How this product was chosen
 
@@ -20,6 +20,7 @@ This repository started with a research exercise: 16 research agents investigate
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture, data model, matching algorithm, API, security and scalability
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): configuration and deployment
 - [docs/FOOD_SAFETY.md](docs/FOOD_SAFETY.md): the Food Safety module, its evidence policy and data coverage
+- [docs/INDIA_COVERAGE.md](docs/INDIA_COVERAGE.md): India coverage today, what is not covered, and operator actions
 - [docs/research/FOOD_SAFETY_EVIDENCE.md](docs/research/FOOD_SAFETY_EVIDENCE.md): graded, fact-checked research on food safety in India
 
 ## What works today
@@ -28,14 +29,14 @@ This repository started with a research exercise: 16 research agents investigate
 |---|---|
 | Live ingestion | US FDA drug and device recalls (openFDA), UK MHRA alerts (GOV.UK APIs), Health Canada recalls (open data plus alert pages), WHO Medical Product Alerts |
 | Batch extraction | Parses free-text lot descriptions (about 98% of a 1,000-recall FDA sample yield batches or an "all lots" flag) and HTML batch tables |
-| Curated alerts | Form and CSV import for PDF-only regulators such as CDSCO and NAFDAC |
+| Curated alerts | Form and CSV import for regulators that publish only PDFs (such as CDSCO and NAFDAC). Each alert must say whether its link is an official notice, an official lab result or a news report. No CDSCO alerts have been entered yet. |
 | Public site | Batch check, alert search and detail, manufacturer histories, source freshness, live impact metrics |
 | Workspaces | Sign up, roles (owner, manager, member), invitations, workspace switching |
 | Inventory | Add, edit, remove, CSV import with row-level validation, CSV export |
 | Matching | Batch-level and product-level matching with explained reasons, on new alerts and on new stock |
 | Closed loop | Inbox, notifications, email digests, outcome recording, reopen, audit log |
 | API | Public search and batch check; API-key access to holdings and matches; OpenAPI docs at `/api/docs` |
-| Food Safety | Food recall search by name, batch or barcode; sourced findings on 8 common foods; FSSAI number, barcode and label checks; consumer reports with a curator queue; testing guide and curated lab directory |
+| Food Safety | Food recall search by name, batch or barcode; sourced findings on 8 common foods; FSSAI number, barcode and label checks; consumer reports with a curator queue; testing guide and a lab directory (empty until our team verifies a lab's accreditation and public access) |
 | Security | Argon2id passwords, hashed sessions, tokens and API keys, CSRF protection, strict CSP, login throttling, tenant isolation |
 
 ## Run it locally
@@ -49,9 +50,11 @@ cp .env.example .env                        # edit BATCHLIGHT_DATABASE_URL if ne
 createdb batchlight
 alembic upgrade head
 python -m batchlight.cli ingest             # first refresh of every source, takes several minutes
-python -m batchlight.cli seed-food-india    # curated India food regulatory actions (safe to re-run)
+python -m batchlight.cli seed-india         # hand-checked Indian medicine and food alerts (safe to re-run)
 uvicorn batchlight.main:app --reload        # http://localhost:8000
 ```
+
+`seed-india` loads `batchlight/data/india_alerts.json`; the old command name `seed-food-india` still works. Run `alembic upgrade head` before it.
 
 Sign up in the browser, then grant yourself the curator role to see the curator console:
 
@@ -97,4 +100,4 @@ openFDA data is in the public domain. GOV.UK content is under the Open Governmen
 
 ## Important
 
-Batchlight relays official alerts and links to each source. It is not medical advice. "No alert found" is not proof that a product is genuine or of good quality.
+Humanity Labs relays official alerts, published studies and some news reports, labels which is which, and links to each source. It is not medical advice. "No alert found" is not proof that a product is genuine or of good quality.

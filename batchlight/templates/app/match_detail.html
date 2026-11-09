@@ -1,8 +1,8 @@
 {% extends "app/_layout.html" %}
-{% from "macros.html" import severity, alert_type, csrf with context %}
+{% from "macros.html" import severity, alert_type, evidence, csrf with context %}
 {% block title %}Match: {{ match.holding.product_name }}{% endblock %}
 {% block content %}
-{% set alert = match.alert %}{% set h = match.holding %}{% set form = form or {} %}
+{% set alert = match.alert %}{% set h = match.holding %}{% set form = form or {} %}{% set curated = alert.source_id == "curated" %}
 <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/app/matches">Matches</a></nav>
 <div class="mt-2 flex flex-wrap items-center gap-2">{{ severity(alert.severity) }} {{ alert_type(alert.alert_type) }}
   <span class="badge {{ 'bg-ink-900 text-white' if match.level == 'batch' else 'bg-ink-100 text-ink-800' }}">{{ "Batch match" if match.level == "batch" else "Product match: check the batch" }} · {{ match.confidence }}%</span></div>
@@ -29,14 +29,15 @@
             <div>{{ alert.product_names[:3]|join(", ") or alert.title }}</div>
             {% if alert.manufacturer %}<div>{{ alert.manufacturer }}</div>{% endif %}
             <div>{% if alert.all_lots %}All batches{% elif lots %}Batches: <span class="font-mono">{{ lots|map(attribute=0)|join(", ") }}{% if alert.lot_count > lots|length %} +{{ alert.lot_count - lots|length }} more{% endif %}</span>{% else %}Batches: see the notice{% endif %}</div>
-            <div>{{ alert.regulator }}, {{ alert.published_at|date }}</div>
+            <div>{{ alert.regulator }}{% if alert.evidence == "report" %} action, as reported by {{ source_host(alert.source_url) }}{% endif %}, {{ alert.published_at|date }}</div>
+            <div class="pt-1">{{ evidence(alert.evidence) }}</div>
           </dl></div>
       </div>
       {% if alert.reason %}<p class="mt-4 text-sm text-ink-700"><span class="font-semibold">Reason:</span> {{ alert.reason }}</p>{% endif %}
-      <a href="{{ alert.source_url }}" class="btn-secondary mt-4" rel="noopener noreferrer" target="_blank">Open the regulator's notice</a>
+      <a href="{{ alert.source_url }}" class="btn-secondary mt-4" rel="noopener noreferrer" target="_blank">{% if source_host(alert.source_url) == "api.fda.gov" %}Open the FDA's recall record (data file){% elif not curated %}Read the original notice{% elif alert.evidence == "lab_test" %}Read the official test result{% elif alert.evidence == "report" %}Read the news report{% else %}Read the official notice{% endif %}</a>
     </section>
     {% if auth.org.kind == "household" %}
-    <div class="rounded-xl bg-beam-50 p-4 text-sm text-ink-800 ring-1 ring-beam-200"><p class="font-semibold">Keep taking the medicine unless told otherwise</p><p class="mt-1">Show this alert to a pharmacist or doctor. They can confirm whether your pack is affected and arrange a replacement. Stopping some medicines suddenly is dangerous.</p></div>
+    <div class="rounded-xl bg-beam-50 p-4 text-sm text-ink-800 ring-1 ring-beam-200"><p class="font-semibold">If your pack matches this alert</p><p class="mt-1">Follow the advice in the original notice. For contaminated or fake products the notice may say do not use it at all. If someone has taken it, or may have taken it, see a doctor now. For a medicine you take every day, speak to a pharmacist or doctor before stopping.</p><p class="mt-1">Show this alert to a pharmacist or doctor. They can confirm whether your pack is affected and arrange a replacement.</p></div>
     {% else %}
     <div class="rounded-xl bg-beam-50 p-4 text-sm text-ink-800 ring-1 ring-beam-200"><p class="font-semibold">What to do</p><p class="mt-1">Check the batch number on the physical stock. If it is affected, stop supplying it, quarantine it, and follow the regulator's instructions for return or destruction. Consider whether patients who received it need to be contacted.</p></div>
     {% endif %}
@@ -67,10 +68,10 @@
         </div>
         {% if errors.get("outcome") %}<p class="field-error">{{ errors.outcome }}</p>{% endif %}
       </fieldset>
-      <div><label for="units" class="label">Units affected <span class="font-normal text-ink-400">(optional)</span></label>
+      <div><label for="units" class="label">Units affected <span class="font-normal text-ink-500">(optional)</span></label>
         <input id="units" name="units_affected" inputmode="numeric" value="{{ form.get('units_affected', '') }}" class="input {% if errors.get('units_affected') %}input-error{% endif %}">
         {% if errors.get("units_affected") %}<p class="field-error">{{ errors.units_affected }}</p>{% endif %}</div>
-      <div><label for="note" class="label">Note <span class="font-normal text-ink-400">(optional)</span></label>
+      <div><label for="note" class="label">Note <span class="font-normal text-ink-500">(optional)</span></label>
         <textarea id="note" name="note" rows="3" class="input" placeholder="e.g. 3 packs found on shelf B2, returned to supplier">{{ form.get('note', '') }}</textarea>
         {% if errors.get("note") %}<p class="field-error">{{ errors.note }}</p>{% endif %}</div>
       <button class="btn-primary w-full" type="submit">Save</button>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import food_alert_row, pagination with context %}
+{% from "macros.html" import food_alert_row, pagination, evidence_legend with context %}
 {% block title %}Food recalls{% endblock %}
 {% block body %}
 <div class="container-page py-8">
@@ -34,17 +34,18 @@
   {% if page.items %}
   <ul class="mt-3 space-y-3">{% for alert in page.items %}{{ food_alert_row(alert) }}{% endfor %}</ul>
   {{ pagination(page.page, page.pages) }}
+  {{ evidence_legend(("official", "lab_test", "report")) }}
   {% elif q %}
-  <div class="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
+  <div class="mt-3 rounded-xl bg-beam-50 p-4 text-ink-900 ring-1 ring-beam-200">
     <p class="font-semibold">No recall found for “{{ q }}”.</p>
-    <p class="mt-1 text-sm">This is not proof the product is safe or genuine. We only know about recalls from the sources below, and India's coverage is incomplete. If something seems wrong, <a href="/food/report?product={{ q|urlencode }}">report it</a>.</p>
+    <p class="mt-1 text-sm">This is not proof the product is safe or genuine. Most recalls we hold are from the US and Canada, and we list very few from India. If something seems wrong, <a href="/food/report?product={{ q|urlencode }}">report it</a>.</p>
   </div>
   {% endif %}
 
   <section class="mt-8">
     <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-500">Sources searched</h2>
     <ul class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-      {% for row in sources %}<li class="card px-4 py-3 text-sm"><p class="font-medium text-ink-900">{{ row.source.country_code|flag }} {{ row.source.name }}</p><p class="text-ink-500">{{ row.alerts|int }} recalls · {% if row.source.automated %}refreshed {{ row.source.last_success_at|ago }}{% else %}added by curators{% endif %}</p></li>{% endfor %}
+      {% for row in sources %}<li class="card px-4 py-3 text-sm"><p class="font-medium text-ink-900">{{ row.source.country_code|flag }} {{ row.source.name }}</p><p class="text-ink-500">{{ row.alerts|int }} recalls · {% if row.source.automated %}refreshed {{ row.source.last_success_at|ago }}{% else %}added by hand{% endif %}</p></li>{% endfor %}
     </ul>
   </section>
 </div>

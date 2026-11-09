@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% from "macros.html" import alert_row, pagination with context %}
+{% from "macros.html" import alert_row, pagination, evidence_legend with context %}
 {% block title %}Alerts{% endblock %}
 {% block body %}
 <div class="container-page py-8">
   <div class="flex flex-wrap items-end justify-between gap-4">
     <div>
-      <h1 class="text-2xl font-bold sm:text-3xl">Medicine safety alerts</h1>
+      <h1 class="text-2xl font-bold sm:text-3xl">Medicine and medical device alerts</h1>
       <p class="mt-1 text-ink-600">{{ page.total|int }} alert{{ "s" if page.total != 1 }}{% if q %} matching “{{ q }}”{% endif %}, newest first.</p>
     </div>
   </div>
@@ -24,8 +24,12 @@
   {% if page.items %}
   <ul class="mt-6 space-y-3">{% for alert in page.items %}{{ alert_row(alert) }}{% endfor %}</ul>
   {{ pagination(page.page, page.pages) }}
+  {{ evidence_legend(("official", "lab_test", "report")) }}
   {% else %}
-  <div class="card card-pad mt-6 text-center text-ink-600">No alerts match these filters.</div>
+  <div class="card card-pad mt-6 text-center text-ink-600">
+    <p class="font-semibold text-ink-900">No alerts match these filters.</p>
+    <p class="mt-1 text-sm">We hold medicine and medical device alerts from the US FDA, UK MHRA, Health Canada and WHO, mostly from January 2024 onward, and a few Indian alerts added by our team. India's CDSCO monthly lists of failed medicine samples are not included yet, so this does not mean a medicine is safe. Try the brand name or the medicine name.</p>
+  </div>
   {% endif %}
 </div>
 {% endblock %}

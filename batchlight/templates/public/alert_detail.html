@@ -1,12 +1,15 @@
 {% extends "base.html" %}
-{% from "macros.html" import severity, alert_type with context %}
+{% from "macros.html" import severity, alert_type, evidence with context %}
 {% block title %}{{ alert.title[:80] }}{% endblock %}
 {% block body %}
+{% set curated = alert.source_id == "curated" %}
 <div class="container-page py-8">
   <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/alerts">Alerts</a> / {{ alert.regulator }}</nav>
-  <div class="mt-3 flex flex-wrap items-center gap-2">{{ severity(alert.severity) }} {{ alert_type(alert.alert_type) }}{% if alert.classification %}<span class="tag">{{ alert.classification }}</span>{% endif %}{% if alert.status %}<span class="tag">{{ alert.status }}</span>{% endif %}</div>
+  <div class="mt-3 flex flex-wrap items-center gap-2">{{ severity(alert.severity) }} {{ alert_type(alert.alert_type) }} {{ evidence(alert.evidence) }}{% if alert.classification and not curated %}<span class="tag">{{ alert.classification }}</span>{% endif %}{% if alert.status %}<span class="tag">{{ alert.status }}</span>{% endif %}</div>
+  <p class="mt-2 text-sm text-ink-600">{% if alert.alert_type in ("substandard", "falsified") %}WHO terms: substandard means an authorised product that fails its quality standards; falsified means it deliberately misrepresents what it is, what is in it or where it came from. {% endif %}"Critical", "High" and so on are our labels{% if not curated %}, based on the regulator's class{% endif %}.</p>
   <h1 class="mt-3 text-2xl font-bold sm:text-3xl">{{ alert.title }}</h1>
-  <p class="mt-2 text-ink-600">{{ alert.country_code|flag }} {{ alert.regulator }} · Published {{ alert.published_at|date }}{% if alert.initiated_at and alert.initiated_at != alert.published_at %} · Initiated {{ alert.initiated_at|date }}{% endif %}</p>
+  <p class="mt-2 text-ink-600">{{ alert.country_code|flag }} {{ alert.regulator }}{% if alert.evidence == "report" %} action, as reported by {{ source_host(alert.source_url) }}{% endif %} · Published {{ alert.published_at|date }}{% if alert.initiated_at and alert.initiated_at != alert.published_at %} · Initiated {{ alert.initiated_at|date }}{% endif %}</p>
+  {% if alert.country_code and alert.country_code != "IN" %}<p class="mt-1 text-sm text-ink-600">This alert comes from {{ alert.regulator }} and is about products sold in that country. Medicines sold in India usually have different labels and batch numbers, so it applies to your pack only if the name, maker and batch match the notice.</p>{% endif %}
 
   {% if own_matches %}
   <div class="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
@@ -17,6 +20,17 @@
 
   <div class="mt-6 grid gap-6 lg:grid-cols-3">
     <div class="space-y-6 lg:col-span-2">
+      {% if curated %}
+      <section class="rounded-xl bg-ink-100 p-4 text-sm text-ink-800">
+        <p>{% if alert.evidence == "lab_test" %}<span class="font-semibold">Added by our team</span> from an official test result published by {{ alert.regulator }}, linked below. It applies to the samples or batch that were tested.{% elif alert.evidence == "official" %}<span class="font-semibold">Added by our team</span> from {{ alert.regulator }}'s own notice, linked below.{% else %}<span class="font-semibold">Added by our team</span> from a news report ({{ source_host(alert.source_url) }}). We could not link to {{ alert.regulator }}'s own notice. Check with your pharmacist, the company or {{ alert.regulator }}.{% endif %}</p>
+      </section>
+      {% endif %}
+      <section class="rounded-xl bg-beam-50 p-4 text-sm text-ink-800 ring-1 ring-beam-200">
+        <h2 class="font-semibold">If your pack matches this alert</h2>
+        <p class="mt-1">Patients: follow the advice in the original notice. For contaminated or fake products the notice may say do not use it at all. If someone has taken it, or may have taken it, see a doctor now. For a medicine you take every day, speak to a pharmacist or doctor before stopping.</p>
+        <p class="mt-1">Pharmacies and clinics: stop supplying the affected batches and follow the notice.</p>
+        <p class="mt-1">In India, report a suspected fake or poor-quality medicine to your state's drug control department, and a side effect to the Pharmacovigilance Programme of India on 1800-180-3024 (toll-free).</p>
+      </section>
       <section class="card card-pad">
         <h2 class="font-bold">Affected batches</h2>
         {% if lots %}
@@ -27,13 +41,15 @@
         {% if alert.lot_count > lots|length %}<p class="mt-3 text-sm text-ink-600">Showing the first {{ lots|length }} of {{ alert.lot_count|int }}. To check a specific batch or serial number, use <a href="/check">Check a batch</a>.</p>{% endif %}
         {% elif alert.all_lots %}
         <p class="mt-2 text-ink-700">This alert covers <strong>all batches</strong> of the product{% if alert.lots_text %}: “{{ alert.lots_text }}”{% endif %}.</p>
+        {% elif alert.evidence == "report" %}
+        <p class="mt-2 text-ink-700">No batch numbers are listed in this news report, so searching by batch number alone will not find this alert. Check with your pharmacist, the company or {{ alert.regulator }}.</p>
         {% else %}
-        <p class="mt-2 text-ink-700">The regulator did not publish batch numbers in a form Batchlight could read. Check the <a href="{{ alert.source_url }}" rel="noopener noreferrer" target="_blank">original notice</a> for the affected batches.</p>
+        <p class="mt-2 text-ink-700">We could not read the affected batch numbers from this notice, so searching by batch number alone will not find this alert. Open the <a href="{{ alert.source_url }}" rel="noopener noreferrer" target="_blank">original notice</a> to see which batches are affected.</p>
         {% if alert.lots_text %}<p class="mt-2 text-sm text-ink-500">Text provided: {{ alert.lots_text }}</p>{% endif %}
         {% endif %}
       </section>
       {% if alert.reason %}
-      <section class="card card-pad"><h2 class="font-bold">Reason</h2><p class="mt-2 whitespace-pre-line text-ink-700">{{ alert.reason }}</p></section>
+      <section class="card card-pad"><h2 class="font-bold">{{ "What was reported" if alert.evidence == "report" else "Reason" }}</h2><p class="mt-2 whitespace-pre-line text-ink-700">{{ alert.reason }}</p></section>
       {% endif %}
       {% if alert.product_description %}
       <section class="card card-pad"><h2 class="font-bold">Product description and notice text</h2><p class="mt-2 whitespace-pre-line text-sm text-ink-700">{{ alert.product_description[:3000] }}{% if alert.product_description|length > 3000 %}…{% endif %}</p></section>
@@ -49,13 +65,9 @@
           {% if alert.active_ingredients %}<div><dt class="font-semibold text-ink-900">Active ingredients</dt><dd class="mt-0.5 text-ink-700">{{ alert.active_ingredients|join(", ") }}</dd></div>{% endif %}
           {% if alert.manufacturer %}<div><dt class="font-semibold text-ink-900">Company</dt><dd class="mt-0.5"><a href="/manufacturers/{{ alert.manufacturer_key|replace(' ', '-') }}">{{ alert.manufacturer }}</a></dd></div>{% endif %}
           {% if alert.product_codes %}<div><dt class="font-semibold text-ink-900">Product codes</dt><dd class="mt-0.5 font-mono text-ink-700">{{ alert.product_codes|join(", ") }}</dd></div>{% endif %}
-          <div><dt class="font-semibold text-ink-900">Source</dt><dd class="mt-0.5 text-ink-700">{{ alert.source.name }}</dd></div>
+          <div><dt class="font-semibold text-ink-900">Source</dt><dd class="mt-0.5 text-ink-700">{% if curated %}{{ EVIDENCE_LABELS[alert.evidence] }} ({{ source_host(alert.source_url) }}){% else %}{{ alert.source.name }}{% endif %}</dd></div>
         </dl>
-        <a href="{{ alert.source_url }}" class="btn-primary mt-4 w-full" rel="noopener noreferrer" target="_blank">Open the original notice</a>
-      </div>
-      <div class="rounded-xl bg-beam-50 p-4 text-sm text-ink-800 ring-1 ring-beam-200">
-        <p class="font-semibold">If you hold this product</p>
-        <p class="mt-1">Pharmacies and clinics: stop supplying the affected batches and follow the regulator's instructions. Patients: don't stop treatment on your own; speak to a pharmacist or doctor about a replacement.</p>
+        <a href="{{ alert.source_url }}" class="btn-primary mt-4 w-full" rel="noopener noreferrer" target="_blank">{% if source_host(alert.source_url) == "api.fda.gov" %}Open the FDA's recall record (data file){% elif not curated %}Read the original notice{% elif alert.evidence == "lab_test" %}Read the official test result{% elif alert.evidence == "report" %}Read the news report{% else %}Read the official notice{% endif %}</a>
       </div>
     </aside>
   </div>

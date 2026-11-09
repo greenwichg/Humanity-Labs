@@ -15,7 +15,7 @@
 
   <h2 class="mt-8 text-lg font-bold">Alert coverage and speed</h2>
   <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-    <div class="stat"><p class="stat-value">{{ alerts.alerts_total|int }}</p><p class="stat-label">alerts from {{ alerts.regulators }} regulators</p></div>
+    <div class="stat"><p class="stat-value">{{ alerts.alerts_total|int }}</p><p class="stat-label">alerts from {{ alerts.regulators }} sources, such as regulators and WHO</p></div>
     <div class="stat"><p class="stat-value">{{ alerts.batch_share|pct }}</p><p class="stat-label">of alerts identify specific batches or all batches</p></div>
     <div class="stat"><p class="stat-value">{% if alerts.median_days_publication_to_batchlight is not none %}{{ "%.0f"|format(alerts.median_days_publication_to_batchlight) }} days{% else %}—{% endif %}</p><p class="stat-label">median from publication to Batchlight{% if alerts.latency_sample %} ({{ alerts.latency_sample }} alerts){% else %} (measured after the first refresh){% endif %}</p></div>
     <div class="stat"><p class="stat-value">{{ matches.false_match_rate|pct }}</p><p class="stat-label">of resolved matches marked as false matches</p></div>

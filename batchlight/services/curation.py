@@ -1,4 +1,9 @@
-"""Curated alerts: entered by hand or CSV from regulators that publish only PDFs or images."""
+"""Alerts added by hand or by CSV, for regulators that publish only PDFs or images.
+
+Each one declares what its link is (``evidence``): the regulator's own notice ("official"), an official
+laboratory result ("lab_test") or a news or NGO report ("report"). The two official kinds must link to a
+government, Parliament or WHO website.
+"""
 
 from __future__ import annotations
 
@@ -8,12 +13,15 @@ import re
 import uuid
 from datetime import date
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, ValidationInfo, field_validator
+from sqlalchemy.orm import Session
 
-from ..ingest.base import AlertRecord
+from ..ingest.base import AlertRecord, ensure_sources, upsert_alert
 from ..lots import LotRef, extract_lots
-from ..models import ALERT_TYPES, CATEGORIES, SEVERITIES
-from ..text import lot_key
+from ..matching import match_alerts, rescore_open_matches
+from ..models import ALERT_TYPES, CATEGORIES, EVIDENCES, SEVERITIES, Alert, Source
+from ..text import lot_key, source_kind
+from .notifications import notify_new_matches
 
 
 def _split(value: str | None) -> list[str]:
@@ -39,6 +47,8 @@ class CuratedAlertInput(BaseModel):
     published_at: date
     source_url: str = Field(max_length=1000, pattern=r"^https://[^\s]+$")
     external_id: str | None = Field(default=None, max_length=200)
+    # Declared last so its validator can see source_url and reason.
+    evidence: str
 
     @field_validator("*", mode="before")
     @classmethod
@@ -67,6 +77,20 @@ class CuratedAlertInput(BaseModel):
             raise ValueError(f"must be one of {', '.join(SEVERITIES)}")
         return value
 
+    @field_validator("evidence")
+    @classmethod
+    def valid_evidence(cls, value, info: ValidationInfo):
+        if value not in EVIDENCES:
+            raise ValueError("choose what the link is: official, lab_test or report")
+        if value in ("official", "lab_test") and source_kind(info.data.get("source_url")) != "official":
+            raise ValueError(
+                "an official notice or official lab result must link to a government, Parliament or WHO website; "
+                "choose report for a news or other link"
+            )
+        if value == "lab_test" and not info.data.get("reason"):
+            raise ValueError("say what the laboratory found, in the reason")
+        return value
+
     @field_validator("all_lots", mode="before")
     @classmethod
     def truthy(cls, value):
@@ -93,7 +117,7 @@ class CuratedAlertInput(BaseModel):
             alert_type=self.alert_type,
             source_url=self.source_url,
             published_at=self.published_at,
-            classification="Curated",
+            classification=None,
             product_names=_split(self.product_names),
             active_ingredients=_split(self.active_ingredients),
             manufacturer=self.manufacturer,
@@ -105,6 +129,7 @@ class CuratedAlertInput(BaseModel):
             regulator=self.regulator,
             country_code=self.country_code.upper() if self.country_code else None,
             category=self.category,
+            evidence=self.evidence,
             raw={"curated": True},
         )
 
@@ -126,6 +151,7 @@ CURATED_CSV_COLUMNS = [
     "published_at",
     "source_url",
     "external_id",
+    "evidence",
 ]
 
 
@@ -135,7 +161,7 @@ def parse_curated_csv(raw: bytes) -> tuple[list[CuratedAlertInput], list[str]]:
     except UnicodeDecodeError:
         text = raw.decode("latin-1")
     reader = csv.DictReader(io.StringIO(text))
-    missing = {"regulator", "title", "alert_type", "severity", "product_names", "published_at", "source_url"} - set(
+    missing = {"regulator", "title", "alert_type", "severity", "product_names", "published_at", "source_url", "evidence"} - set(
         reader.fieldnames or []
     )
     if missing:
@@ -154,3 +180,22 @@ def parse_curated_csv(raw: bytes) -> tuple[list[CuratedAlertInput], list[str]]:
             errors.append("Only 2,000 alerts can be imported at once.")
             break
     return rows, errors
+
+
+def publish_curated(db: Session, data: CuratedAlertInput, user_id: uuid.UUID | None = None) -> tuple[Alert, bool, bool, int]:
+    """Store a hand-added alert, match changed medicine alerts to stock and notify workspaces.
+
+    Returns (alert, created, changed, new matches). Commits.
+    """
+    ensure_sources(db)
+    source = db.get(Source, "curated")
+    alert, created, changed = upsert_alert(db, source, data.to_record(), created_by=user_id)
+    db.commit()
+    if changed and not created:
+        rescore_open_matches(db, alert_ids=[alert.id])
+    new_matches = match_alerts(db, [alert.id]) if changed else []
+    db.commit()
+    if new_matches:
+        notify_new_matches(db, new_matches)
+        db.commit()
+    return alert, created, changed, len(new_matches)

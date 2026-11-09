@@ -60,6 +60,8 @@ def medicines(request: Request, db: DB, auth: OptionalAuth):
 def check(request: Request, db: DB, auth: OptionalAuth, batch: str = "", product: str = "", manufacturer: str = ""):
     batch, product, manufacturer = batch.strip()[:100], product.strip()[:200], manufacturer.strip()[:200]
     searched = bool(batch or product)
+    # The form was sent with both boxes empty: say what to type instead of showing nothing.
+    empty_search = not searched and any(name in request.query_params for name in ("batch", "product", "manufacturer"))
     results = check_batch(db, batch, product or None, manufacturer or None) if searched else []
     return render(
         request,
@@ -69,6 +71,7 @@ def check(request: Request, db: DB, auth: OptionalAuth, batch: str = "", product
             "product": product,
             "manufacturer": manufacturer,
             "searched": searched,
+            "empty_search": empty_search,
             "results": results,
             "sources": sources_status(db),
         },

@@ -3,7 +3,7 @@
 {% block body %}
 <div class="container-page py-8">
   <h1 class="text-2xl font-bold sm:text-3xl">What tests have found in everyday food</h1>
-  <p class="mt-2 max-w-3xl text-ink-600">Summaries of what regulators, peer-reviewed studies and credible reports found when food was tested in India. Each finding shows where it comes from. A finding about samples is not a finding about the pack in your kitchen.</p>
+  <p class="mt-2 max-w-3xl text-ink-600">Summaries of what official tests, peer-reviewed studies and news or NGO reports found, mostly about food sold in India. Each finding shows where it comes from. A finding about samples is not a finding about the pack in your kitchen.</p>
   <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
     {% for topic in topics %}
     <a href="/food/reported/{{ topic.slug }}" class="card card-pad block no-underline hover:bg-ink-50">

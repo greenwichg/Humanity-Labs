@@ -11,17 +11,20 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from ...db import session_factory
-from ...ingest import REGISTRY, ensure_sources, run_source, upsert_alert
-from ...matching import match_alerts, rescore_open_matches
+from ...ingest import REGISTRY, ensure_sources, run_source
 from ...models import ALERT_TYPES, SEVERITIES, Alert, FoodReport, IngestionRun, Source
 from ...services import audit
-from ...services.curation import CURATED_CSV_COLUMNS, CuratedAlertInput, parse_curated_csv
-from ...services.notifications import notify_new_matches
+from ...services.curation import CURATED_CSV_COLUMNS, CuratedAlertInput, parse_curated_csv, publish_curated
 from ..auth import CSRF, DB, CuratorAuth, flash
 from ..countries import COUNTRIES
 from ..templating import render
 
 router = APIRouter(prefix="/admin", include_in_schema=False)
+EVIDENCE_CHOICES = [
+    ("official", "The regulator's own notice or order (on its website)"),
+    ("lab_test", "An official lab test result (for example a CDSCO 'Not of Standard Quality' list or a Food Analyst report)"),
+    ("report", "A news report (the regulator's own notice can't be found or opened)"),
+]
 log = logging.getLogger("batchlight.admin")
 
 
@@ -74,21 +77,6 @@ def toggle(source_id: str, db: DB, auth: CuratorAuth):
     return response
 
 
-def _publish(db, data: CuratedAlertInput, user_id) -> tuple[Alert, int]:
-    ensure_sources(db)
-    source = db.get(Source, "curated")
-    alert, _, changed = upsert_alert(db, source, data.to_record(), created_by=user_id)
-    db.commit()
-    if changed:
-        rescore_open_matches(db, alert_ids=[alert.id])
-    new_matches = match_alerts(db, [alert.id]) if changed else []
-    db.commit()
-    if new_matches:
-        notify_new_matches(db, new_matches)
-        db.commit()
-    return alert, len(new_matches)
-
-
 @router.get("/alerts/new")
 def new_alert(request: Request, auth: CuratorAuth):
     return render(
@@ -96,6 +84,7 @@ def new_alert(request: Request, auth: CuratorAuth):
         "admin/alert_form.html",
         {
             "form": {"alert_type": "recall", "severity": "high"},
+            "evidence_choices": EVIDENCE_CHOICES,
             "errors": {},
             "types": ALERT_TYPES,
             "severities": SEVERITIES,
@@ -114,10 +103,17 @@ async def create_alert(request: Request, db: DB, auth: CuratorAuth):
         return render(
             request,
             "admin/alert_form.html",
-            {"form": form, "errors": errors, "types": ALERT_TYPES, "severities": SEVERITIES, "countries": COUNTRIES},
+            {
+                "form": form,
+                "errors": errors,
+                "types": ALERT_TYPES,
+                "severities": SEVERITIES,
+                "countries": COUNTRIES,
+                "evidence_choices": EVIDENCE_CHOICES,
+            },
             status_code=422,
         )
-    alert, matched = _publish(db, data, auth.user.id)
+    alert, _, _, matched = publish_curated(db, data, auth.user.id)
     audit.record(db, "curated_alert_created", user_id=auth.user.id, entity_type="alert", entity_id=alert.id, matched=matched)
     db.commit()
     response = RedirectResponse(f"/alerts/{alert.id}", status_code=303)
@@ -135,7 +131,7 @@ def import_template(auth: CuratorAuth):
     example = (
         "medicine,CDSCO (India),IN,Not of standard quality: Example Paracetamol Syrup,substandard,high,Example Paracetamol Syrup,"
         'paracetamol,Example Labs Pvt Ltd,,"EPS2401, 06/2026; EPS2402, 07/2026",false,Failed assay test,2026-10-15,'
-        "https://cdsco.gov.in/opencms/opencms/en/Notifications/Alerts/,\n"
+        "https://cdsco.gov.in/,,lab_test\n"
     )
     return PlainTextResponse(
         ",".join(CURATED_CSV_COLUMNS) + "\n" + example,
@@ -156,7 +152,7 @@ async def import_alerts(request: Request, db: DB, auth: CuratorAuth, file: Annot
         )
     matched = 0
     for data in rows:
-        _, count = _publish(db, data, auth.user.id)
+        *_, count = publish_curated(db, data, auth.user.id)
         matched += count
     audit.record(db, "curated_alerts_imported", user_id=auth.user.id, count=len(rows), matched=matched)
     db.commit()

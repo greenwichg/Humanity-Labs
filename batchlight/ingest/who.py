@@ -1,7 +1,7 @@
 """WHO Medical Product Alerts on substandard and falsified medical products.
 
-WHO often publishes the batch table as an image, so alerts without an HTML
-table are stored at product level and link to the source notice.
+WHO usually publishes the batch table in a separate annex file, so alerts
+without an HTML table are stored at product level and link to the source notice.
 """
 
 from __future__ import annotations
@@ -97,7 +97,7 @@ def map_page(url: str, html: str, listed_date: date | None) -> AlertRecord:
         product_description=truncate(text, 4000),
         product_names=names,
         active_ingredients=ingredients,
-        manufacturer=makers[0] if makers else None,
+        manufacturer=", ".join(dict.fromkeys(makers)) or None,  # every maker, in WHO's order
         reason=truncate(summary.group(1) if summary else text, 1200),
         lots=[LotRef(lot=r.batch, key=lot_key(r.batch), expiry_text=r.expiry) for r in rows],
         lots_text=", ".join(r.batch for r in rows) or None,

@@ -33,6 +33,8 @@ MATCH_STATUSES = ("open", "resolved")
 OUTCOMES = ("quarantined", "returned", "destroyed", "patients_notified", "not_in_stock", "false_match", "other")
 ACTION_OUTCOMES = ("quarantined", "returned", "destroyed", "patients_notified")
 CATEGORIES = ("medicine", "food")
+# What an alert's source link is: a regulator's own notice, a published official lab result, or a news or NGO report.
+EVIDENCES = ("official", "lab_test", "report")
 REPORT_PROBLEMS = ("looks_wrong", "made_ill", "foreign_object", "label_problem", "suspected_fake", "expired_or_tampered", "other")
 REPORT_STATUSES = ("new", "reviewed", "forwarded", "dismissed")
 LAB_TESTS = ("pesticides", "microbiology", "heavy_metals", "mycotoxins", "adulterants", "allergens", "nutrition", "water")
@@ -191,6 +193,7 @@ class Alert(Base):
         CheckConstraint(_in("severity", SEVERITIES), name="severity_valid"),
         CheckConstraint(_in("alert_type", ALERT_TYPES), name="alert_type_valid"),
         CheckConstraint(_in("category", CATEGORIES), name="category_valid"),
+        CheckConstraint(_in("evidence", EVIDENCES), name="evidence_valid"),
         Index("ix_alerts_category_published", "category", "published_at"),
         Index("ix_alerts_name_tokens", "name_tokens", postgresql_using="gin"),
         Index("ix_alerts_product_codes", "product_codes", postgresql_using="gin"),
@@ -205,6 +208,7 @@ class Alert(Base):
     regulator: Mapped[str] = mapped_column(String(100), nullable=False)
     country_code: Mapped[str | None] = mapped_column(String(2))
     category: Mapped[str] = mapped_column(String(20), nullable=False, default="medicine", server_default="medicine")
+    evidence: Mapped[str] = mapped_column(String(10), nullable=False, default="official", server_default="official")
     alert_type: Mapped[str] = mapped_column(String(20), nullable=False)
     severity: Mapped[str] = mapped_column(String(10), nullable=False)
     classification: Mapped[str | None] = mapped_column(String(100))

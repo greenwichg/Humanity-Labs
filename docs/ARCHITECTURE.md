@@ -19,7 +19,7 @@ flowchart LR
         MHRA[UK MHRA via GOV.UK APIs]
         HC[Health Canada open data]
         WHO[WHO medical product alerts]
-        CUR[Curator entry and CSV, for PDF-only regulators]
+        CUR[Curator entry, CSV and India seed, each with an evidence label]
     end
     subgraph Batchlight
         W[Worker: ingest, parse, match, notify]
@@ -98,7 +98,7 @@ erDiagram
 | `api_keys` | `org_id`, `prefix`, `key_hash`, `revoked_at`, `last_used_at` | The full key is shown once at creation. |
 | `sources` | `id` (slug), `regulator`, `country_code`, `enabled`, `last_success_at`, `last_error` | One row per adapter. |
 | `ingestion_runs` | `source_id`, `status`, `fetched`, `created`, `updated`, `matched`, `error` | Source health and audit. |
-| `alerts` | `source_id` + `external_id` (unique), `severity`, `alert_type`, `title`, `product_names[]`, `active_ingredients[]`, `manufacturer`, `manufacturer_key`, `product_codes[]`, `name_tokens[]`, `all_lots`, `reason`, `published_at`, `source_url`, `content_hash`, `raw` (jsonb), generated `search` tsvector | `content_hash` detects real changes so re-ingestion is idempotent. |
+| `alerts` | `source_id` + `external_id` (unique), `severity`, `alert_type`, `title`, `product_names[]`, `active_ingredients[]`, `manufacturer`, `manufacturer_key`, `product_codes[]`, `name_tokens[]`, `all_lots`, `reason`, `published_at`, `source_url`, `evidence` (`official`, `lab_test` or `report`), `content_hash`, `raw` (jsonb), generated `search` tsvector | `content_hash` detects real changes so re-ingestion is idempotent; it leaves out `evidence` when it is `official`, so existing hashes did not change. `evidence` says what `source_url` is: the regulator's own notice, an official lab result, or a news or NGO report. It is shown as a badge on every list row and detail page. Automated feeds are always `official`; hand-added alerts must declare it (see Curated below). A check constraint limits it to the three values. |
 | `alert_lots` | `alert_id`, `lot`, `lot_key`, `expiry_text` | `lot_key` is the normalised batch code, indexed. |
 | `holdings` | `org_id`, `product_name`, `active_ingredient`, `strength`, `manufacturer`, `product_code`, `lot`, `lot_key`, `expiry_date`, `quantity`, `name_tokens[]`, `archived_at` | A stock line or a household medicine. |
 | `matches` | `alert_id` + `holding_id` (unique), `org_id`, `level` (batch, product), `confidence`, `reasons[]`, `status`, `outcome`, `units_affected`, `resolved_at`, `resolved_by` | The closed loop. |
@@ -122,7 +122,7 @@ Each source adapter yields normalised `AlertRecord` objects. The pipeline is the
 | UK MHRA | `gov.uk/api/search.json` (filter `medical_safety_alert`) and `gov.uk/api/content/...` | HTML batch tables in the alert body. |
 | Health Canada | `recalls-rappels.canada.ca` open data JSON | Product level; batch tables parsed from detail pages for recent alerts. |
 | WHO | `who.int` medical product alerts list and pages | HTML tables when present, otherwise product level. |
-| Curated | Curator form and CSV import | Entered from PDF or image notices with the source link. |
+| Curated | Curator form, CSV import and the India seed (`python -m batchlight.cli seed-india`, data in `batchlight/data/india_alerts.json`) | Entered from PDF or image notices, or from a news report when the official notice can't be opened, with the source link. Each must declare `evidence`: `official` and `lab_test` need a government, Parliament or WHO link (`OFFICIAL_DOMAINS` in `batchlight/text.py`), and `lab_test` needs a reason. |
 
 ## Matching algorithm
 
@@ -170,7 +170,7 @@ API keys are sent as `Authorization: Bearer bl_<prefix>_<secret>` and are scoped
 - **Untrusted source data.** All regulator content is treated as untrusted text and HTML-escaped on output. Only tables and text are extracted, never markup.
 - **Authorisation.** Roles are owner, manager and member within a workspace. Curator is a separate platform role. Each route declares the role it needs.
 - **Audit.** Logins, imports, match resolutions, member changes and API key changes are written to `audit_events`.
-- **Safety messaging.** Negative results state the sources searched and that no alert is not proof of quality. Patient-facing match pages tell people to keep taking their medicine and speak to a pharmacist unless the alert says otherwise.
+- **Safety messaging.** Negative results state the sources searched, the major sources not searched (such as India's CDSCO), and that no alert is not proof of quality. Patient-facing pages tell people to follow the advice in the original notice, which for contaminated or fake products may say do not use it at all; to see a doctor now if someone has taken it; and, for a medicine they take every day, to speak to a pharmacist or doctor before stopping. Every alert shows whether its source is an official notice, an official lab result or a news report.
 
 ## Scalability strategy
 

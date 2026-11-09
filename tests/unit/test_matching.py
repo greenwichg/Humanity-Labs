@@ -57,7 +57,7 @@ def test_known_batch_not_listed_never_matches():
 def test_missing_batch_gives_product_level_match():
     decision = score(alert(), holding(lot=None, maker="Strides Pharma Inc"))
     assert decision and decision.level == "product"
-    assert "No batch number is recorded" in decision.reasons[0]
+    assert "No batch number was entered" in decision.reasons[0]
 
 
 def test_all_lots_alert_matches_any_batch_of_same_product_from_same_maker():
@@ -82,7 +82,7 @@ def test_falsified_alert_without_lots_matches_brand_holding():
     falsified = alert(names=("DARZALEX", "daratumumab"), lots=(), maker=None, codes=(), text="DARZALEX", alert_type="falsified")
     decision = score(falsified, holding(name="Darzalex 400mg/20ml", lot="NFS3S01", maker="Janssen"))
     assert decision and decision.level == "product"
-    assert "does not list batch numbers" in decision.reasons[0]
+    assert "could not read batch numbers" in decision.reasons[0]
 
 
 def test_unrelated_product_does_not_match():
@@ -137,3 +137,67 @@ def test_ingredient_alone_does_not_match_a_branded_product_alert():
         alert_type="falsified",
     )
     assert score(healmoxy, holding(name="Amoxicillin 500 mg capsules", lot=None)) is None
+
+
+def test_reason_wording_is_plain():
+    no_lots = score(alert(lots=(), maker=None, codes=()), holding(lot=None), strict=False)
+    listed = score(alert(), holding(lot=None, maker="Strides Pharma Inc"))
+    all_lots = score(alert(lots=(), all_lots=True), holding(lot="ANY123", maker="Strides Pharma Inc"))
+    reasons = [r for d in (no_lots, listed, all_lots) for r in d.reasons]
+    assert no_lots.reasons[0] == "We could not read batch numbers from this alert: check your batch in the original notice"
+    assert listed.reasons[0] == "No batch number was entered: compare the batch on your pack with the batches listed in the alert"
+    for reason in reasons:
+        assert "does not list batch numbers here" not in reason
+        assert "recorded for this item" not in reason
+        assert "source notice" not in reason
+
+
+def membrane(names=("Polyacrylonitrile (PAN) based filter membrane",), alert_type="safety_notice", lots=()):
+    return alert(names=names, lots=lots, maker=None, codes=(), text="", alert_type=alert_type)
+
+
+def test_one_short_word_is_not_enough_for_a_name_only_match():
+    pan = holding(name="Pan 40", lot=None)
+    assert pan.name_tokens == {"pan"}
+    assert score(membrane(), pan, strict=False) is None
+    assert score(membrane(), pan) is None
+    assert score(membrane(names=("Philips Azurion pan handle",), alert_type="recall"), pan, strict=False) is None
+    # also when a batch was entered but is not the one listed, or the alert covers all batches
+    assert score(membrane(), holding(name="Pan 40", lot="ZZQX9"), strict=False) is None
+    assert score(alert(names=("PAN filter",), lots=(), all_lots=True, maker=None, codes=(), text=""), pan) is None
+
+
+def test_one_generic_word_is_not_enough_but_two_words_are():
+    assert score(membrane(names=("Zinc Oxide Paste",)), holding(name="Zinc 20mg", lot=None), strict=False) is None
+    saline = membrane(names=("0.9% Sodium Chloride Injection",))
+    assert score(saline, holding(name="Sodium Chloride", lot=None), strict=False) is not None
+
+
+def test_a_distinctive_brand_word_still_matches_by_name():
+    coldrif = AlertFacts(
+        name_tokens={"coldrif", "paracetamol", "phenylephrine"},
+        product_tokens={"coldrif", "paracetamol", "phenylephrine"},
+        lot_keys=set(),
+        all_lots=False,
+        manufacturer=None,
+        product_codes=[],
+        strengths=set(),
+        alert_type="substandard",
+    )
+    decision = score(coldrif, holding(name="Coldrif", lot=None), strict=False)
+    assert decision is not None and decision.level == "product"
+    assert score(coldrif, holding(name="Coldrif", lot="SR13"), strict=False) is not None  # alert lists no batches
+
+
+def test_batch_hits_keep_the_existing_rule():
+    # A listed batch plus a single short matching word is still a batch match.
+    decision = score(membrane(lots=("PN123",)), holding(name="Pan 40", lot="PN123"), strict=False)
+    assert decision is not None and decision.level == "batch"
+
+
+def test_a_short_brand_name_matches_when_the_manufacturer_matches_too():
+    # Short Indian brand names ("Pan 40") still match an all-batches alert for the same maker's product.
+    pan_alert = alert(names=("Pan 40",), lots=(), all_lots=True, maker="Alkem Laboratories Ltd", codes=(), text="")
+    decision = score(pan_alert, holding(name="Pan 40", lot=None, maker="Alkem Laboratories"))
+    assert decision is not None and decision.level == "product"
+    assert score(pan_alert, holding(name="Pan 40", lot=None, maker="Other Maker Pvt Ltd")) is None

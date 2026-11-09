@@ -29,7 +29,9 @@ def test_public_batch_check(client, ingest):
     hit = client.get("/api/v1/check", params={"batch": "7717825A", "product": "Cinacalcet 30 mg"}).json()
     assert hit["results"][0]["batch_listed"] is True and hit["results"][0]["level"] == "batch"
     assert any(s["id"] == "us-fda-drug" for s in hit["sources_searched"])
-    assert "not proof" in hit["note"]
+    assert "does not mean a product is safe or genuine" in hit["note"]
+    assert "CDSCO" in hit["note"] and "evidence field" in hit["note"]
+    assert hit["results"][0]["alert"]["evidence"] == "official"
     miss = client.get("/api/v1/check", params={"batch": "NOPE0000", "product": "Cinacalcet 30 mg"}).json()
     assert all(not r["batch_listed"] for r in miss["results"])
     assert client.get("/api/v1/check").status_code == 422
@@ -129,3 +131,39 @@ def test_patch_changes_only_the_fields_sent(client, make_client, ingest, db):
     assert (
         api.patch(f"/api/v1/holdings/{created['holding']['id']}", headers=headers, json={"product_name": None}).status_code == 422
     )
+
+
+def test_alert_evidence_field_and_check_note(client, db):
+    from batchlight.services.curation import CuratedAlertInput, publish_curated
+    from batchlight.services.india_seed import seed_india_alerts
+
+    seed_india_alerts(db)
+    news, *_ = publish_curated(
+        db,
+        CuratedAlertInput(
+            regulator="Drugs Control Administration, Telangana",
+            country_code="IN",
+            title="Test syrup batch NR-1: reported as not of standard quality",
+            alert_type="substandard",
+            severity="high",
+            product_names="Testsyrup Cough Syrup",
+            batches="NR-1",
+            published_at="2025-10-09",
+            source_url="https://news.example.com/test-syrup",
+            evidence="report",
+        ),
+    )
+    assert client.get(f"/api/v1/alerts/{news.id}").json()["evidence"] == "report"
+    coldrif = client.get("/api/v1/alerts", params={"q": "Coldrif"}).json()["items"]
+    assert [a["evidence"] for a in coldrif] == ["lab_test"]
+    for item in client.get("/api/v1/alerts", params={"per_page": 100}).json()["items"]:
+        assert item["evidence"] in ("official", "lab_test", "report")
+    check = client.get("/api/v1/check", params={"batch": "NR-1", "product": "Testsyrup"}).json()
+    assert check["results"][0]["alert"]["evidence"] == "report"
+    assert "CDSCO" in check["note"] and "evidence field" in check["note"]
+    empty = client.get("/api/v1/check", params={"batch": "ZZQX9"}).json()
+    assert empty["results"] == [] and "Not included yet" in empty["note"]
+    spec = client.get("/api/openapi.json").json()
+    field = spec["components"]["schemas"]["AlertOut"]["properties"]["evidence"]
+    assert field["enum"] == ["official", "lab_test", "report"]
+    assert "News or NGO report" in field["description"] and "Official lab result" in field["description"]

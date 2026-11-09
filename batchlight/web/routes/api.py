@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ...db import get_db
+from ...food.knowledge import EVIDENCE_HELP, EVIDENCE_LABELS
 from ...models import ALERT_TYPES, OUTCOMES, SEVERITIES, Alert, ApiKey, Holding, Match
 from ...security import constant_time_equals, parse_api_key, token_hash
 from ...services import audit
@@ -29,6 +30,11 @@ DB = Annotated[Session, Depends(get_db)]
 class LotOut(BaseModel):
     batch: str
     expiry: str | None
+
+
+EVIDENCE_DESCRIPTION = "What the source link is, as labelled on the website. " + " ".join(
+    f'"{key}" ({EVIDENCE_LABELS[key]}): {EVIDENCE_HELP[key]}' for key in ("official", "lab_test", "report")
+)
 
 
 class AlertOut(BaseModel):
@@ -51,6 +57,7 @@ class AlertOut(BaseModel):
     all_batches: bool
     published_at: date | None
     source_url: str
+    evidence: Literal["official", "lab_test", "report"] = Field(description=EVIDENCE_DESCRIPTION)
     url: str
 
     @classmethod
@@ -75,6 +82,7 @@ class AlertOut(BaseModel):
             all_batches=alert.all_lots,
             published_at=alert.published_at,
             source_url=alert.source_url,
+            evidence=alert.evidence,
             url=f"/alerts/{alert.id}",
         )
 
@@ -110,8 +118,11 @@ class CheckOut(BaseModel):
     results: list[CheckHit]
     sources_searched: list[SourceOut]
     note: str = (
-        "No alert is not proof that a product is genuine or of good quality. "
-        "Batchlight relays official alerts and does not give medical advice."
+        "An empty result does not mean a product is safe or genuine. Only the sources in sources_searched are checked, "
+        "mostly from 1 January 2024, plus a few Indian alerts added by our team. Not included yet: India's CDSCO monthly "
+        "drug alerts and state drug controllers' notices. Alerts without readable batch numbers, including most WHO alerts, "
+        "are found only when a product name is given. Alerts added by hand may be based on news reports: check the "
+        "evidence field. Batchlight does not give medical advice."
     )
 
 
@@ -299,7 +310,10 @@ def check(
     manufacturer: Annotated[str | None, Query(max_length=200)] = None,
     category: Literal["medicine", "food"] = "medicine",
 ):
-    """Check a batch number, optionally with product name and manufacturer, against every source."""
+    """Check a batch number against the alerts Batchlight holds (listed in sources_searched).
+
+    Add the product name: alerts without readable batch numbers, including most WHO alerts, are found only by name.
+    """
     if not batch.strip() and not (product or "").strip():
         raise HTTPException(422, "Provide a batch number, a product name, or both")
     hits = check_batch(db, batch, product, manufacturer, category=category)
