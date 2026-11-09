@@ -12,6 +12,7 @@ from .sources import UNPUBLISHED
 
 EVIDENCE_LABELS = {
     "official": "Official record",
+    "official_copy": "Official data, republished",
     "official_finding": "Official finding",
     "calculated": "Calculated by us",
     "report": "News or NGO report",
@@ -19,6 +20,7 @@ EVIDENCE_LABELS = {
 }
 EVIDENCE_HELP = {
     "official": "Taken from a government or funder's published record, linked here.",
+    "official_copy": "Government data republished by another organisation, linked here. Check the official portal where you can.",
     "official_finding": "A finding published by an auditor, inspector, court or regulator. It is their finding, linked here.",
     "calculated": "Worked out by us from official figures. The working is shown.",
     "report": "From a news or NGO report, not from the official record.",
@@ -65,13 +67,19 @@ def day(value: date | None) -> str | None:
 def facts(project: InfraProject, parent: InfraProject | None, today: date) -> list[Fact]:
     """Answers to the questions citizens ask, in order. Missing answers say why."""
     p, prog = project, parent or (project if project.level == "programme" else None)
+    data = p.data or {}
+    ev = data.get("evidence", "official")  # how this record's own facts are supported
+    none = "Not in the records we have."
     rows: list[Fact] = []
     states = ", ".join(region_name(s) for s in p.state_slugs)
+    where = states
+    if states and data.get("district"):
+        where = f"{data.get('block') + ' block, ' if data.get('block') else ''}{data['district']} district, {states}"
     rows.append(
         Fact(
             "Where is it?",
-            states or None,
-            "official" if p.state_basis == "source" else ("official" if states else None),
+            where or None,
+            (ev if p.state_basis == "source" else "official") if where else None,
             f"State {STATE_BASIS.get(p.state_basis, 'from the record')}."
             if states
             else "The source record does not name a state.",
@@ -86,27 +94,39 @@ def facts(project: InfraProject, parent: InfraProject | None, today: date) -> li
             "Our reading of the description in the official record.",
         )
     )
-    approval = f"Financing approved by the World Bank's Board on {day(prog.approved_on)}" if prog and prog.approved_on else None
-    rows.append(
-        Fact(
-            "Who approved it?",
-            approval,
-            "official" if approval else None,
-            "The government's own sanction order is not published in the sources we use."
-            if approval
-            else "No approval or sanction record is published in the sources we use.",
-            prog.source_url if prog else None,
+    for question, answer in data.get("extra_facts") or []:
+        rows.append(Fact(question, answer, ev, None, p.source_url))
+    if p.status:
+        rows.append(Fact("What stage is it at?", p.status, ev, "As recorded in the source.", p.source_url))
+
+    # Approval and funding
+    if prog and prog.approved_on:
+        rows.append(
+            Fact(
+                "Who approved it?",
+                f"Financing approved by the World Bank's Board on {day(prog.approved_on)}",
+                "official",
+                "The government's own sanction order is not published in the sources we use.",
+                prog.source_url,
+            )
         )
-    )
+    elif data.get("approval"):
+        rows.append(
+            Fact("Who approved it?", data["approval"], ev, "The sanction order itself is not in this data.", p.source_url)
+        )
+    else:
+        rows.append(Fact("Who approved it?", None, None, "No approval or sanction record is published in the sources we use."))
     funders = " · ".join(
         x for x in ((prog.funder if prog else None), (f"Borrower: {prog.borrower}" if prog and prog.borrower else None)) if x
     )
-    funded_note, funded_url = None, prog.source_url if prog else None
-    if not funders and p.level == "work" and p.parent_external_id and p.source_id.startswith("infra-wb"):
-        name = (p.data or {}).get("project_name")
+    funded_ev, funded_note, funded_url = "official", None, prog.source_url if prog else None
+    if not funders and p.funder:
+        funders, funded_ev, funded_url = p.funder, ev, p.source_url
+    elif not funders and p.level == "work" and p.parent_external_id and p.source_id.startswith("infra-wb"):
+        name = data.get("project_name")
         funders = f"World Bank–financed project {p.parent_external_id}" + (f" ({name})" if name else "")
         funded_note, funded_url = "Named in the procurement notice.", p.source_url
-    rows.append(Fact("Who funded it?", funders or None, "official" if funders else None, funded_note, funded_url))
+    rows.append(Fact("Who funded it?", funders or None, funded_ev if funders else None, funded_note, funded_url))
     if prog and prog.implementing_agency:
         rows.append(
             Fact(
@@ -117,16 +137,9 @@ def facts(project: InfraProject, parent: InfraProject | None, today: date) -> li
                 prog.source_url,
             )
         )
-    if p.level == "work":
-        rows.append(
-            Fact(
-                "Who invited the tender?",
-                p.tendering_body,
-                "official" if p.tendering_body else None,
-                None if p.tendering_body else "Not given in the notices we have.",
-                p.tender_url,
-            )
-        )
+
+    # Money
+    cost_note = data.get("cost_note")
     if prog:
         budget = money(prog.budget_amount, prog.budget_currency)
         rows.append(
@@ -142,23 +155,29 @@ def facts(project: InfraProject, parent: InfraProject | None, today: date) -> li
         )
     if p.level == "work":
         rows.append(
-            Fact("What was this work's estimated cost?", None, None, "The tender estimate is not published in these notices.")
+            Fact(
+                "What was this work's estimated or sanctioned cost?",
+                None,
+                None,
+                cost_note or "The estimate is not published in these notices.",
+            )
         )
+
+    # Tender and contract
+    if p.level == "work":
+        if p.tendering_body:
+            rows.append(Fact("Who invited the tender?", p.tendering_body, ev, None, p.tender_url))
         if p.tendered_on:
             deadline = f"; bids due {day(p.bid_deadline_on)}" if p.bid_deadline_on else ""
-            rows.append(
-                Fact("When was it tendered?", f"{day(p.tendered_on)}{deadline}", "official", p.procurement_method, p.tender_url)
-            )
+            rows.append(Fact("When was it tendered?", f"{day(p.tendered_on)}{deadline}", ev, p.procurement_method, p.tender_url))
         else:
-            rows.append(Fact("When was it tendered?", None, None, "We do not have the tender notice for this work."))
+            rows.append(Fact("When was it tendered?", None, None, "The tender notice is not in the records we have."))
         rows.append(
             Fact(
                 "Which contractor got the contract?",
                 p.contractors_text,
-                "official" if p.contractors_text else None,
-                "Winning a contract is not evidence of anything wrong."
-                if p.contractors_text
-                else "No contract award notice in our sources yet.",
+                ev if p.contractors_text else None,
+                "Winning a contract is not evidence of anything wrong." if p.contractors_text else none,
                 p.source_url,
             )
         )
@@ -167,8 +186,8 @@ def facts(project: InfraProject, parent: InfraProject | None, today: date) -> li
             Fact(
                 "What is the contract price?",
                 price,
-                "official" if price else None,
-                "Signed contract price in the award notice." if price else None,
+                ev if price else None,
+                "Signed contract price in the award notice." if price else (cost_note or none),
                 p.source_url,
             )
         )
@@ -179,25 +198,28 @@ def facts(project: InfraProject, parent: InfraProject | None, today: date) -> li
                 f"{p.bids_rejected} rejected" if p.bids_rejected else None,
             ]
             bids = ", ".join(x for x in parts if x)
+        rows.append(Fact("How many bids were there?", bids, ev if bids else None, None if bids else none, p.source_url))
         rows.append(
             Fact(
-                "How many bids were there?",
-                bids,
-                "official" if bids else None,
-                None if bids else "Not given in the notices we have.",
+                "When was it awarded?",
+                day(p.awarded_on),
+                ev if p.awarded_on else None,
+                None if p.awarded_on else none,
                 p.source_url,
             )
         )
-        rows.append(Fact("When was it awarded?", day(p.awarded_on), "official" if p.awarded_on else None, None, p.source_url))
+
+    # Dates
     promised = day(p.promised_completion_on)
     if p.promised_basis == "calculated":
-        note = f"Award date plus the contract duration in the notice ({p.duration_text}). The notice gives no completion date."
-        evidence = "calculated"
+        note, evidence = (
+            f"Award date plus the contract duration in the notice ({p.duration_text}). The notice gives no completion date.",
+            "calculated",
+        )
     elif p.promised_basis == "financing_close":
-        note = "This is when the World Bank financing is due to end, not a completion date for the works."
-        evidence = "official"
+        note, evidence = "This is when the World Bank financing is due to end, not a completion date for the works.", "official"
     else:
-        note, evidence = "No promised completion date is published in the sources we use.", None
+        note, evidence = "No promised completion date is in the records we have.", None
     rows.append(
         Fact(
             "When was it promised to finish?" if p.level == "work" else "When is the financing due to close?",
@@ -212,8 +234,9 @@ def facts(project: InfraProject, parent: InfraProject | None, today: date) -> li
         Fact(
             "When did it actually finish?",
             finished,
-            "official" if finished else None,
+            ev if finished else None,
             None if finished else UNPUBLISHED["actual_completion"],
+            p.source_url if finished else None,
         )
     )
     if p.promised_completion_on and not p.actual_completion_on and p.promised_completion_on < today and p.level == "work":
@@ -222,14 +245,35 @@ def facts(project: InfraProject, parent: InfraProject | None, today: date) -> li
         ].note = (
             f"{UNPUBLISHED['actual_completion']} The expected date ({promised}) has passed, but that alone does not show a delay."
         )
-    rows.append(Fact("How much has been spent?", None, None, UNPUBLISHED["expenditure"]))
-    rows.append(Fact("Inspections and quality tests", None, None, UNPUBLISHED["inspection"]))
+
+    # Rarely published
+    rows.append(Fact("How much has been spent?", None, None, cost_note or UNPUBLISHED["expenditure"]))
+    if data.get("scheme") == "PMGSY":
+        rows.append(
+            Fact(
+                "Inspections and quality tests",
+                None,
+                None,
+                "Quality monitors' grades are on PMGSY's own portal (OMMAS), which we cannot reach yet.",
+            )
+        )
+    else:
+        rows.append(Fact("Inspections and quality tests", None, None, UNPUBLISHED["inspection"]))
     rows.append(
         Fact("Audit findings", None, None, "No audit finding is linked to this project yet. See the audit reports for its state.")
     )
     if p.level == "work":
-        rows.append(Fact("Defect liability and maintenance", None, None, UNPUBLISHED["maintenance"]))
+        if p.status == "Maintenance":
+            rows.append(
+                Fact(
+                    "Defect liability and maintenance",
+                    "The record lists this road's stage as “Maintenance”.",
+                    ev,
+                    "The maintenance contract's terms and end date are not in this data.",
+                    p.source_url,
+                )
+            )
+        else:
+            rows.append(Fact("Defect liability and maintenance", None, None, UNPUBLISHED["maintenance"]))
     rows.append(Fact("Current condition", None, None, UNPUBLISHED["condition"]))
-    if p.status:
-        rows.insert(2, Fact("Status", p.status, "official", None, p.source_url))
     return rows

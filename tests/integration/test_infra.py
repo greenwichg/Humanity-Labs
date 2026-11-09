@@ -17,6 +17,7 @@ def transport(awards=None):
     award_notices = awards or json.loads((FIX / "infra_wb_awards.json").read_text())["procnotices"]
     tenders = json.loads((FIX / "infra_wb_tenders.json").read_text())["procnotices"]
     cag = (FIX / "infra_cag_listing.html").read_text()
+    pmgsy = (FIX / "infra_pmgsy_sample.csv").read_bytes()
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "search.worldbank.org" and request.url.path.endswith("/projects"):
@@ -26,6 +27,8 @@ def transport(awards=None):
             return httpx.Response(200, json={"total": len(items), "procnotices": items})
         if request.url.host == "cag.gov.in":
             return httpx.Response(200, text=cag)
+        if request.url.host == "ckandev.indiadataportal.com":
+            return httpx.Response(200, content=pmgsy, headers={"content-type": "text/csv"})
         return httpx.Response(404)
 
     return httpx.MockTransport(handler)
@@ -111,7 +114,7 @@ def test_programme_passport_lists_its_works_and_explains_the_closing_date(client
 def test_home_lists_every_state_and_ut_and_explains_coverage(client, ingested):
     page = client.get("/infrastructure").text
     assert page.count('href="/infrastructure/states/') == 36
-    assert "Most public works in India are not financed by the World Bank" in page
+    assert "PMGSY rural roads" in page and "so many public works are not here" in page
     assert "not that nothing was built" in page
 
 
@@ -130,10 +133,40 @@ def test_search_state_contractor_and_sources_pages(client, db, ingested):
     contractor = client.get(f"/infrastructure/contractors/{party.id}").text
     assert "Winning contracts is not evidence of anything wrong" in contractor and "₹29.49 lakh" in contractor
     sources = client.get("/infrastructure/sources").text
-    assert "PMGSY rural roads (OMMAS)" in sources and "Checked, not connected yet" in sources
+    assert "PMGSY rural roads (India Data Portal copy of OMMAS data)" in sources and "own portal (OMMAS)" in sources
+    assert "Checked, not connected yet" in sources
 
 
 def test_medicine_and_food_pages_are_unaffected(client, ingested):
     for path in ("/", "/medicines", "/check?batch=SR-13", "/food", "/sources"):
         assert client.get(path).status_code == 200
     assert "infra-" not in client.get("/sources").text
+
+
+def test_pmgsy_roads_become_passports_with_republished_labels_and_no_unconfirmed_costs(client, db, ingested):
+    from sqlalchemy import func, select
+
+    from batchlight.models import InfraProject
+
+    assert ingested["infra-pmgsy-roads"].status == "succeeded"
+    roads = db.scalars(select(InfraProject).where(InfraProject.source_id == "infra-pmgsy-roads")).all()
+    assert len(roads) == 8  # 10 rows: one road serves three habitations
+    kerala = next(r for r in roads if r.state_slugs == ["kerala"])
+    page = client.get(f"/infrastructure/projects/{kerala.id}").text
+    assert "Official data, republished" in page and "India Data Portal" in page and "omms.nic.in" in page
+    assert "Joseph Thomas" in page and "11 Nov 2015" in page  # contractor and completion
+    assert "Areekara" in page and "Kozhuvalloor" in page and "Pottakulam" in page
+    assert "Chengannur block, Alappuzha district, Kerala" in page
+    assert "does not state their unit" in page and "₹" not in page.split("What the records show")[1].split("Project history")[0]
+    assert "“Maintenance”" in page
+    building = next(r for r in roads if r.status == "Sub-Grade Stage")
+    assert building.actual_completion_on is None  # a date on an unfinished road is not shown as completion
+    assert "Kerala" in client.get("/infrastructure/states/kerala").text
+    total = db.scalar(select(func.count()).select_from(InfraProject).where(InfraProject.source_id == "infra-pmgsy-roads"))
+    from batchlight.db import session_factory
+    from batchlight.infra.sources import REGISTRY
+    from batchlight.infra.store import run_infra_source
+
+    again = run_infra_source(session_factory(), REGISTRY["infra-pmgsy-roads"], httpx.Client(transport=transport()))
+    assert (again.created, again.updated) == (0, 0)
+    assert db.scalar(select(func.count()).select_from(InfraProject).where(InfraProject.source_id == "infra-pmgsy-roads")) == total

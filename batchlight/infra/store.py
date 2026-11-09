@@ -23,7 +23,7 @@ FIELDS = (
     "level", "title", "description", "asset_type", "state_slugs", "state_basis", "parent_external_id", "funder", "borrower",
     "implementing_agency", "tendering_body", "budget_amount", "budget_currency", "funder_amount", "funder_currency",
     "contract_amount", "contract_currency", "procurement_method", "bids_evaluated", "bids_rejected", "approved_on",
-    "tendered_on", "bid_deadline_on", "awarded_on", "duration_text", "promised_completion_on", "promised_basis", "status",
+    "tendered_on", "bid_deadline_on", "awarded_on", "duration_text", "promised_completion_on", "promised_basis", "actual_completion_on", "status",
     "tender_url",
 )  # fmt: skip
 TRACKED = {

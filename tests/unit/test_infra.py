@@ -10,7 +10,15 @@ import pytest
 
 from batchlight.infra.classify import classify
 from batchlight.infra.geo import REGIONS, find_regions
-from batchlight.infra.sources import add_duration, map_wb_notice, map_wb_project, notice_text, parse_award, parse_cag_listing
+from batchlight.infra.sources import (
+    add_duration,
+    map_pmgsy_road,
+    map_wb_notice,
+    map_wb_project,
+    notice_text,
+    parse_award,
+    parse_cag_listing,
+)
 from batchlight.infra.store import party_key
 
 FIX = Path(__file__).parent.parent / "fixtures"
@@ -117,3 +125,23 @@ def test_cag_listing_keeps_public_works_reports_with_states():
     west_bengal = next(d for d in docs if "West Bengal" in d.title)
     assert west_bengal.state_slugs == ["west-bengal"] and "Transport" in west_bengal.sectors
     assert not any("Direct Tax" in d.title for d in docs)  # not about public works
+
+
+def test_pmgsy_rows_for_one_road_merge_and_costs_stay_hidden():
+    import csv
+
+    rows = list(csv.DictReader((FIX / "infra_pmgsy_sample.csv").open(encoding="utf-8")))
+    kerala = [r for r in rows if r["state_name"] == "Kerala"]
+    road = map_pmgsy_road(kerala)
+    assert road.external_id.startswith("PMGSY-KR0140-") and road.state_slugs == ["kerala"]
+    assert road.contractors == ["Joseph Thomas"] and road.actual_completion_on == date(2015, 11, 11)
+    assert road.awarded_on == date(2014, 11, 12)
+    assert road.budget_amount is None and road.contract_amount is None  # unit not stated by the source
+    assert "does not state their unit" in road.data["cost_note"]
+    assert all(e.evidence == "official_copy" for e in road.events)
+    unfinished = map_pmgsy_road(
+        [r for r in rows if r["physical_status"] == "In Progress" and r["company_name"] == "M/s Nabam Tadap Agency"]
+    )
+    assert unfinished.actual_completion_on is None and unfinished.data["recorded_completion_date"] == "15-05-2017"
+    nobody = map_pmgsy_road([r for r in rows if r["company_name"] in ("None", "")])
+    assert nobody.contractors == []

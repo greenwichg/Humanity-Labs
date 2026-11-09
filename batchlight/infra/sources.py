@@ -7,8 +7,11 @@ Every value comes from the source record. Nothing is estimated except where a fi
 from __future__ import annotations
 
 import calendar
+import csv
+import hashlib
 import html
 import re
+import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -68,6 +71,7 @@ class ProjectData:
     duration_text: str | None = None
     promised_completion_on: date | None = None
     promised_basis: str | None = None
+    actual_completion_on: date | None = None
     status: str | None = None
     tender_url: str | None = None
     events: list[EventData] = field(default_factory=list)
@@ -509,7 +513,187 @@ class CagAuditReports(InfraSource):
             yield from parse_cag_listing(response.text)
 
 
-REGISTRY: dict[str, InfraSource] = {s.id: s for s in (WorldBankProjects(), WorldBankCivilWorks(), CagAuditReports())}
+# --------------------------------------------------------------------------- PMGSY rural roads
+
+PMGSY_DATASET_URL = "https://ckandev.indiadataportal.com/dataset/pradhan-mantri-gram-sadak-yojana-pmgsy"
+PMGSY_CSV_URL = (
+    "https://ckandev.indiadataportal.com/dataset/ca23895a-ed8b-438c-aa6e-c5a89b6b8dce/resource/"
+    "14c4a773-61bb-4cc3-9ba5-fc21e16fe8d7/download/pmgsy-financial-and-physical-report.csv"
+)
+PMGSY_SOURCE_NAME = "PMGSY data from OMMAS (Ministry of Rural Development), republished by India Data Portal"
+# The dataset gives cost and spending figures without saying whether they are in rupees, lakh or crore.
+# They are kept in the record's data but never shown until the unit is confirmed from PMGSY's own reports.
+PMGSY_COST_NOTE = (
+    "The PMGSY dataset gives cost and spending figures but does not state their unit (rupees, lakh or crore). "
+    "We will show them once we have confirmed the unit from PMGSY's own reports."
+)
+PMGSY_DONE = ("Completed", "Maintenance")
+_EMPTY = ("", "none", "nan", "null")
+
+
+def _clean(value: str | None) -> str | None:
+    value = " ".join((value or "").split())
+    return None if value.lower() in _EMPTY else value
+
+
+def _number(value: str | None) -> float | None:
+    try:
+        return float(value) if _clean(value) else None
+    except ValueError:
+        return None
+
+
+def map_pmgsy_road(rows: list[dict]) -> ProjectData | None:
+    """One road from its rows (the dataset has one row per habitation the road serves)."""
+    first = rows[0]
+    road, package = _clean(first.get("road_name")), _clean(first.get("packages"))
+    if not road:
+        return None
+    key = "|".join(
+        _clean(first.get(f)) or ""
+        for f in ("state_code", "district_code", "block_code", "packages", "road_name", "sanctioned_year")
+    )
+    external_id = f"PMGSY-{package or 'NA'}-{hashlib.sha256(key.encode()).hexdigest()[:10]}"
+    state, district, block = _clean(first.get("state_name")), _clean(first.get("district_name")), _clean(first.get("block_name"))
+    habitations = list(dict.fromkeys(h for r in rows if (h := _clean(r.get("habitation_name")))))
+    status = _clean(first.get("physical_status"))
+    done = status in PMGSY_DONE
+    awarded = _date(first.get("work_award_date"), "%d-%m-%Y")
+    finished = _date(first.get("completion_date"), "%d-%m-%Y") if done else None
+    sanctioned = _clean(first.get("sanctioned_year"))
+    company = _clean(first.get("company_name")) or _clean(first.get("contractor_name"))
+    kind = _clean(first.get("upgrade_or_new"))
+    length, built = _number(first.get("length")), _number(first.get("completed_length"))
+    surface = _clean(first.get("surface_type"))
+    where = ", ".join(x for x in (f"{block} block" if block else None, f"{district} district" if district else None, state) if x)
+    parts = [
+        f"{kind} of a rural road" if kind else "Rural road",
+        f"{length:g} km" if length else None,
+        f"{surface} surface" if surface else None,
+    ]
+    description = ", ".join(p for p in parts if p) + (f", in {where}." if where else ".")
+    if habitations:
+        description += f" Habitations served: {', '.join(habitations[:15])}{' and others' if len(habitations) > 15 else ''}."
+    if package:
+        description += f" PMGSY package {package}."
+    extra = []
+    if length:
+        extra.append(["How long is it?", f"{length:g} km" + (f" ({built:g} km recorded as built)" if built is not None else "")])
+    if surface:
+        extra.append(["What surface?", surface])
+    if habitations:
+        extra.append(
+            ["Which habitations does it serve?", ", ".join(habitations[:15]) + (" and others" if len(habitations) > 15 else "")]
+        )
+    record = ProjectData(
+        external_id=external_id,
+        level="work",
+        title=road,
+        description=description,
+        asset_type="road",
+        state_slugs=find_regions(state),
+        state_basis="source",
+        funder="Pradhan Mantri Gram Sadak Yojana (PMGSY), Ministry of Rural Development",
+        contractors=[company] if company else [],
+        awarded_on=awarded,
+        status=status,
+        source_url=PMGSY_DATASET_URL,
+        data={
+            "evidence": "official_copy",
+            "scheme": "PMGSY",
+            "approval": f"Sanctioned under PMGSY in {sanctioned}" if sanctioned else None,
+            "district": district,
+            "block": block,
+            "package": package,
+            "financial_status": _clean(first.get("financial_status")),
+            "extra_facts": extra,
+            "cost_note": PMGSY_COST_NOTE,
+            "unconfirmed_unit_costs": {
+                f: _number(first.get(f))
+                for f in ("total_cost", "pavement_cost", "expenditure_till_date", "long_span_bridge_cost")
+            },
+            "recorded_completion_date": _clean(first.get("completion_date")),
+            "official_portal": "https://omms.nic.in/",
+        },
+    )
+    record.actual_completion_on = finished
+    if sanctioned:
+        record.events.append(
+            EventData(
+                f"pmgsy-sanction-{external_id}",
+                "approval",
+                None,
+                f"Sanctioned under PMGSY in {sanctioned}",
+                None,
+                "official_copy",
+                PMGSY_SOURCE_NAME,
+                PMGSY_DATASET_URL,
+            )
+        )
+    if awarded:
+        record.events.append(
+            EventData(
+                f"pmgsy-award-{external_id}",
+                "award",
+                awarded,
+                f"Work awarded to {company}" if company else "Work awarded (contractor not named in the data)",
+                None,
+                "official_copy",
+                PMGSY_SOURCE_NAME,
+                PMGSY_DATASET_URL,
+            )
+        )
+    if finished:
+        record.events.append(
+            EventData(
+                f"pmgsy-completion-{external_id}",
+                "completion",
+                finished,
+                "Recorded as completed",
+                f"Stage in the record: {status}.",
+                "official_copy",
+                PMGSY_SOURCE_NAME,
+                PMGSY_DATASET_URL,
+            )
+        )
+    return record
+
+
+class PmgsyRoads(InfraSource):
+    id = "infra-pmgsy-roads"
+    name = "PMGSY rural roads (India Data Portal copy of OMMAS data)"
+    publisher = "Ministry of Rural Development (OMMAS); republished by India Data Portal"
+    homepage_url = PMGSY_DATASET_URL
+    provides = (
+        "Every rural road in PMGSY's records: state, district, block, habitations served, contractor, sanction year, "
+        "award and completion dates, length and stage. Costs are held back until their unit is confirmed."
+    )
+    interval_hours = 24 * 30
+
+    def fetch(self, client: httpx.Client, since: date) -> Iterator[ProjectData]:
+        with tempfile.TemporaryFile("w+b") as tmp:
+            with client.stream("GET", PMGSY_CSV_URL) as response:
+                response.raise_for_status()
+                for chunk in response.iter_bytes():
+                    tmp.write(chunk)
+            tmp.seek(0)
+            with open(tmp.fileno(), encoding="utf-8", errors="replace", newline="", closefd=False) as text:
+                groups: dict[str, list[dict]] = {}
+                for row in csv.DictReader(text):
+                    key = "|".join(
+                        row.get(f) or ""
+                        for f in ("state_code", "district_code", "block_code", "packages", "road_name", "sanctioned_year")
+                    )
+                    groups.setdefault(key, []).append(row)
+        for rows in groups.values():
+            record = map_pmgsy_road(rows)
+            if record:
+                yield record
+
+
+REGISTRY: dict[str, InfraSource] = {
+    s.id: s for s in (WorldBankProjects(), WorldBankCivilWorks(), CagAuditReports(), PmgsyRoads())
+}
 
 
 @dataclass(frozen=True)
@@ -524,11 +708,11 @@ class PendingSource:
 # Checked on 9 November 2026 from our servers. Shown on the coverage page so nobody mistakes a gap for "no problems".
 NOT_CONNECTED: tuple[PendingSource, ...] = (
     PendingSource(
-        "PMGSY rural roads (OMMAS)",
+        "PMGSY's own portal (OMMAS)",
         "Ministry of Rural Development, NRIDA",
         "https://omms.nic.in/",
-        "Every rural road under PMGSY: sanctioned cost, contractor, award and completion dates, quality monitor grades and the 5-year maintenance period.",
-        "Could not be reached from our servers. Needs hosting in India.",
+        "Up-to-date road records, quality monitors' inspection grades and maintenance details, straight from the official system.",
+        "Could not be reached from our servers; needs hosting in India. Until then we use India Data Portal's copy of its data (above).",
     ),
     PendingSource(
         "Central Public Procurement Portal (CPPP)",

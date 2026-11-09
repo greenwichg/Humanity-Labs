@@ -80,6 +80,6 @@
   </section>
   {% endif %}
 
-  <p class="mt-10 text-sm text-ink-600">Source: <a href="{{ p.source_url }}" rel="noopener noreferrer" target="_blank">{{ source.name if source else "official record" }}</a>. Last updated in our database {{ p.updated_at|date }}. This page shows what official records say. A contract award, a passed date or a change in cost is not, by itself, evidence of wrongdoing.</p>
+  <p class="mt-10 text-sm text-ink-600">Source: <a href="{{ p.source_url }}" rel="noopener noreferrer" target="_blank">{{ source.name if source else "official record" }}</a>.{% if p.data and p.data.get("official_portal") %} Official portal: <a href="{{ p.data.get('official_portal') }}" rel="noopener noreferrer" target="_blank">{{ p.data.get("official_portal")|replace("https://", "")|trim("/") }}</a>.{% endif %} Last updated in our database {{ p.updated_at|date }}. This page shows what official records say. A contract award, a passed date or a change in cost is not, by itself, evidence of wrongdoing.</p>
 </div>
 {% endblock %}

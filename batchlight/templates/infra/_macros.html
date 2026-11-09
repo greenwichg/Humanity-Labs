@@ -1,5 +1,5 @@
 {% macro badge(kind) -%}
-{% set styles = {"official": "bg-emerald-100 text-emerald-900", "official_finding": "bg-amber-100 text-amber-900", "calculated": "bg-sky-100 text-sky-900", "report": "bg-ink-100 text-ink-800", "citizen": "bg-beam-100 text-ink-800"} %}
+{% set styles = {"official": "bg-emerald-100 text-emerald-900", "official_copy": "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200", "official_finding": "bg-amber-100 text-amber-900", "calculated": "bg-sky-100 text-sky-900", "report": "bg-ink-100 text-ink-800", "citizen": "bg-beam-100 text-ink-800"} %}
 <span class="badge {{ styles.get(kind, 'bg-ink-100 text-ink-800') }}" title="{{ INFRA_EVIDENCE_HELP.get(kind, '') }}">{{ INFRA_EVIDENCE_LABELS.get(kind, kind) }}</span>
 {%- endmacro %}
 
@@ -29,7 +29,7 @@
 <details class="mt-4 text-sm text-ink-600">
   <summary class="cursor-pointer font-medium text-ink-800">What the labels mean</summary>
   <dl class="mt-2 space-y-2">
-    {% for kind in ("official", "official_finding", "calculated", "report", "citizen") %}<div><dt class="inline">{{ badge(kind) }}</dt> <dd class="inline">{{ INFRA_EVIDENCE_HELP[kind] }}</dd></div>{% endfor %}
+    {% for kind in ("official", "official_copy", "official_finding", "calculated", "report", "citizen") %}<div><dt class="inline">{{ badge(kind) }}</dt> <dd class="inline">{{ INFRA_EVIDENCE_HELP[kind] }}</dd></div>{% endfor %}
   </dl>
 </details>
 {%- endmacro %}
