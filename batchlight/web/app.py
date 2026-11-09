@@ -50,6 +50,8 @@ def is_api(request: Request) -> bool:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    if settings.is_production and len(settings.secret_key) < 32:
+        raise RuntimeError("Set BATCHLIGHT_SECRET_KEY to a random value of at least 32 characters in production")
     app = FastAPI(
         title="Batchlight API",
         version=__version__,

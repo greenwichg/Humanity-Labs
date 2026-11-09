@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     # Food Safety module
     secret_key: str = ""  # used to hash reporters' IP addresses for rate limiting; set a long random value in production
     report_limit_per_hour: int = 5
+    report_emails_per_address_per_day: int = 3
 
     # Matching
     match_lookback_years: int = 6

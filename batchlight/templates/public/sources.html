@@ -4,10 +4,10 @@
 <div class="container-page py-8">
   <h1 class="text-2xl font-bold sm:text-3xl">Data sources</h1>
   <p class="mt-2 max-w-3xl text-ink-600">Humanity Labs reads public alerts from these regulators. Automated sources are refreshed on a schedule. Regulators that publish only PDF or image notices are entered by curators, with a link to the original notice.</p>
-  {% for category, heading in [("medicine", "Medicines"), ("food", "Food")] %}
+  {% for heading, rows in sections %}
   <h2 class="mt-8 text-lg font-bold">{{ heading }}</h2>
   <div class="mt-6 grid gap-4 md:grid-cols-2">
-    {% for row in sources if row.source.category == category or (not row.source.automated and category == "medicine") %}{% set s = row.source %}
+    {% for row in rows %}{% set s = row.source %}
     <div class="card card-pad">
       <div class="flex items-start justify-between gap-3">
         <div><p class="font-semibold text-ink-950">{{ s.country_code|flag }} {{ s.name }}</p><p class="text-sm text-ink-500">{{ s.regulator }}</p></div>
@@ -24,7 +24,7 @@
   {% endfor %}
   <section class="card card-pad mt-8 text-sm text-ink-700">
     <h2 class="font-bold text-ink-950">Licences</h2>
-    <p class="mt-2">openFDA data is in the public domain. GOV.UK content is published under the Open Government Licence v3.0. Health Canada data is published under the Open Government Licence – Canada. WHO alerts are summarised with a link to the original notice on who.int.</p>
+    <p class="mt-2">openFDA data is in the public domain. GOV.UK content is published under the Open Government Licence v3.0. Health Canada and Canadian Food Inspection Agency data are published under the Open Government Licence – Canada. WHO alerts are summarised with a link to the original notice on who.int. Curated alerts link to the regulator's notice, or to the published report they are based on when the regulator has not posted one.</p>
   </section>
 </div>
 {% endblock %}

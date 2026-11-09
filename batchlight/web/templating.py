@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
@@ -95,6 +95,21 @@ def country_flag(code: str | None) -> str:
     return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in code.upper())
 
 
+# Government and intergovernmental domains. A curated alert linking elsewhere is from a published report, not the notice.
+OFFICIAL_DOMAINS = ("gov", "gov.in", "nic.in", "gc.ca", "canada.ca", "gov.uk", "gov.hk", "gov.sg", "who.int", "europa.eu")
+
+
+def source_kind(url: str | None) -> str:
+    """Return "official" for a government or WHO link, otherwise "report" (news, NGO or another publisher)."""
+    host = (urlparse(url or "").hostname or "").lower()
+    return "official" if any(host == d or host.endswith("." + d) for d in OFFICIAL_DOMAINS) else "report"
+
+
+def source_host(url: str | None) -> str:
+    host = (urlparse(url or "").hostname or "").lower()
+    return host.removeprefix("www.")
+
+
 def query(request: Request, **changes: Any) -> str:
     params = dict(request.query_params)
     for key, value in changes.items():
@@ -109,6 +124,8 @@ env.filters.update(
     date=fmt_date, datetime=fmt_datetime, ago=time_ago, hours=fmt_hours, pct=fmt_pct, int=fmt_int, flag=country_flag
 )
 env.globals.update(
+    source_kind=source_kind,
+    source_host=source_host,
     SEVERITY_LABELS=SEVERITY_LABELS,
     TYPE_LABELS=TYPE_LABELS,
     OUTCOME_LABELS=OUTCOME_LABELS,

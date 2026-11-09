@@ -109,7 +109,7 @@ def alert_detail(request: Request, alert_id: uuid.UUID, db: DB, auth: OptionalAu
     if alert is None:
         raise HTTPException(404)
     if alert.category == "food":
-        return RedirectResponse(f"/food/recalls/{alert.id}", status_code=301)
+        return RedirectResponse(f"/food/recalls/{alert.id}", status_code=302)
     lots = first_lots(db, [alert.id], LOTS_SHOWN)[alert.id]
     own_matches = []
     if auth and auth.org:
@@ -135,7 +135,11 @@ def manufacturer(request: Request, slug: str, db: DB, auth: OptionalAuth):
 
 @router.get("/sources", include_in_schema=False)
 def sources(request: Request, db: DB, auth: OptionalAuth):
-    return render(request, "public/sources.html", {"sources": sources_status(db, category=None)})
+    return render(
+        request,
+        "public/sources.html",
+        {"sections": [("Medicines", sources_status(db, "medicine")), ("Food", sources_status(db, "food"))]},
+    )
 
 
 @router.get("/impact", include_in_schema=False)

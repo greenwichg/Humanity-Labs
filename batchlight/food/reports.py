@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -79,16 +80,39 @@ class ReportInput(BaseModel):
 
 
 @lru_cache
-def _fallback_secret() -> str:
-    return secrets.token_hex(32)
+def _development_secret() -> str:
+    """Stable across workers and restarts outside production, where BATCHLIGHT_SECRET_KEY is required."""
+    return hashlib.sha256(f"batchlight-development:{get_settings().database_url}".encode()).hexdigest()
+
+
+def _client_block(ip: str) -> str:
+    """IPv6 users can change addresses within their /64 at will, so rate-limit the /64."""
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if address.version == 6:
+        if address.ipv4_mapped:
+            return str(address.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{address}/64", strict=False))
+    return str(address)
 
 
 def ip_fingerprint(ip: str | None) -> str | None:
-    """A keyed hash of the reporter's IP address: enough to rate-limit, without storing the address."""
+    """A keyed hash of the reporter's network address: enough to rate-limit, without storing the address."""
     if not ip:
         return None
-    secret = get_settings().secret_key or _fallback_secret()
-    return hashlib.sha256(f"{secret}:{ip}".encode()).hexdigest()
+    secret = get_settings().secret_key or _development_secret()
+    return hashlib.sha256(f"{secret}:{_client_block(ip)}".encode()).hexdigest()
+
+
+def email_allowed(session: Session, email: str) -> bool:
+    """At most a few acknowledgement emails per address per day, so the form can't be used to spam someone."""
+    since = datetime.now(UTC) - timedelta(days=1)
+    count = session.scalar(
+        select(func.count()).select_from(FoodReport).where(FoodReport.contact_email == email, FoodReport.created_at >= since)
+    )
+    return (count or 0) <= get_settings().report_emails_per_address_per_day
 
 
 def over_limit(session: Session, ip_hash: str | None) -> bool:

@@ -25,14 +25,15 @@ All settings are environment variables prefixed `BATCHLIGHT_`. See `.env.example
 | `BATCHLIGHT_DATABASE_URL` | `postgresql+psycopg://user:password@host:5432/batchlight` |
 | `BATCHLIGHT_BASE_URL` | Public URL, e.g. `https://batchlight.example.org` (used in email links) |
 | `BATCHLIGHT_SECURE_COOKIES` | `true` (also enables HSTS) |
-| `BATCHLIGHT_TRUST_PROXY_HEADERS` | `true` only behind a proxy that sets `X-Forwarded-For`; also set `FORWARDED_ALLOW_IPS` to the proxy's address |
+| `BATCHLIGHT_TRUST_PROXY_HEADERS` | `true` only behind a proxy that appends to `X-Forwarded-For`; the app uses the rightmost entry. Also set `FORWARDED_ALLOW_IPS` to the proxy's address |
 | `BATCHLIGHT_EMAIL_BACKEND` | `smtp` |
 | `BATCHLIGHT_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_STARTTLS` | From your email provider |
 | `BATCHLIGHT_EMAIL_FROM` | A sender address your provider has verified |
 | `BATCHLIGHT_OPENFDA_API_KEY` | Recommended; free from open.fda.gov, raises rate limits |
 | `BATCHLIGHT_INGEST_INTERVAL_MINUTES` | `60` is a good default |
 | `BATCHLIGHT_INGEST_SINCE` | How far back the first refresh reaches, default `2024-01-01` |
-| `BATCHLIGHT_SECRET_KEY` | A long random value; keys the hash of reporters' IP addresses. If unset, a per-process value is used and rate limits reset on restart |
+| `BATCHLIGHT_SECRET_KEY` | Required in production: at least 32 random characters (e.g. `openssl rand -hex 32`). Keys the hash of food reporters' network addresses; the app refuses to start in production without it |
+| `BATCHLIGHT_REPORT_LIMIT_PER_HOUR`, `BATCHLIGHT_REPORT_EMAILS_PER_ADDRESS_PER_DAY` | Food report limits per network (IPv6 grouped by /64) and acknowledgement emails per address; defaults 5 and 3 |
 
 Keep secrets (database password, SMTP password, API keys) in your platform's secret store, not in files.
 

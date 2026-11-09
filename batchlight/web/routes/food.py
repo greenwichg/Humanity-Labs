@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from pydantic import ValidationError
 from sqlalchemy import or_, select
@@ -20,7 +20,7 @@ from ...food.knowledge import (
     search_topics,
 )
 from ...food.labs import TEST_LABELS
-from ...food.reports import PROBLEM_LABELS, ReportInput, create_report, ip_fingerprint, over_limit
+from ...food.reports import PROBLEM_LABELS, ReportInput, create_report, email_allowed, ip_fingerprint, over_limit
 from ...food.verify import FOSCOS_URL, check_barcode, check_fssai_licence
 from ...models import Alert, TestingLab
 from ...services import audit
@@ -106,7 +106,7 @@ def recalls(request: Request, db: DB, auth: OptionalAuth, q: str = "", country: 
 def recall_detail(request: Request, alert_id: uuid.UUID, db: DB, auth: OptionalAuth):
     alert = food_alert_or_404(db, alert_id)
     if alert.category != "food":
-        return RedirectResponse(f"/alerts/{alert.id}", status_code=301)
+        return RedirectResponse(f"/alerts/{alert.id}", status_code=302)
     return render(
         request,
         "food/recall_detail.html",
@@ -150,7 +150,7 @@ def verify(request: Request, db: DB, auth: OptionalAuth, licence: str = "", barc
     barcode_result = check_barcode(barcode) if barcode.strip() else None
     barcode_recalls = []
     if barcode_result and barcode_result.valid:
-        barcode_recalls = search_alerts(db, barcode_result.digits, category="food", per_page=10).items
+        barcode_recalls = search_alerts(db, barcode_result.search_digits, category="food", per_page=10).items
     return render(
         request,
         "food/verify.html",
@@ -184,7 +184,7 @@ def report_form(request: Request, auth: OptionalAuth, product: str = "", batch: 
 
 
 @router.post("/report", dependencies=[CSRF])
-async def submit_report(request: Request, db: DB, auth: OptionalAuth):
+async def submit_report(request: Request, db: DB, auth: OptionalAuth, background: BackgroundTasks):
     form = await request.form()
     values = {name: str(form.get(name, "")) for name in FORM_FIELDS}
     if form.get("website"):  # honeypot field, hidden from people
@@ -214,14 +214,18 @@ async def submit_report(request: Request, db: DB, auth: OptionalAuth):
         db, "food_report_created", user_id=auth.user.id if auth else None, entity_type="food_report", entity_id=report.id
     )
     db.commit()
-    if report.contact_email:
-        send_email(
+    if report.contact_email and email_allowed(db, report.contact_email):
+        # Only the server-generated reference goes in the email, never text from the form, and it is sent after the
+        # response so a slow mail server cannot hold up the request.
+        background.add_task(
+            send_email,
             report.contact_email,
             f"We received your food safety report {report.reference}",
-            f"Thank you for reporting {report.product_name}.\n\nYour reference is {report.reference}.\n\n"
+            f"Thank you for your report to Humanity Labs. Your reference is {report.reference}.\n\n"
             "A curator will review it. We do not publish individual reports. To make an official complaint, use "
-            "FSSAI's Food Safety Connect app or your state food safety department.\n\n"
-            "If anyone is unwell, please seek medical care.",
+            "FSSAI's Food Safety Connect app or contact your state food safety department.\n\n"
+            "If anyone is unwell, please seek medical care.\n\n"
+            "If you did not send this report, you can ignore this email.",
         )
     return render(request, "food/report_thanks.html", {**CONTEXT, "report": report, "problem": PROBLEM_LABELS[report.problem]})
 

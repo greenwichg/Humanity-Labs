@@ -276,7 +276,7 @@ def get_alert(alert_id: uuid.UUID, db: DB):
     return AlertOut.of(alert, first_lots(db, [alert.id], 10_000)[alert.id])
 
 
-def _sources(db) -> list[SourceOut]:
+def _sources(db, category: str = "medicine") -> list[SourceOut]:
     return [
         SourceOut(
             id=s["source"].id,
@@ -287,7 +287,7 @@ def _sources(db) -> list[SourceOut]:
             last_success_at=s["source"].last_success_at,
             automated=s["source"].automated,
         )
-        for s in sources_status(db)
+        for s in sources_status(db, category)
     ]
 
 
@@ -307,7 +307,7 @@ def check(
     return CheckOut(
         batch=batch,
         product=product,
-        sources_searched=_sources(db),
+        sources_searched=_sources(db, category),
         results=[
             CheckHit(
                 alert=AlertOut.of(h.alert, lots[h.alert.id]),
@@ -332,9 +332,9 @@ def manufacturer(slug: str, db: DB):
 
 
 @router.get("/sources", response_model=list[SourceOut], tags=["alerts"])
-def sources(db: DB):
-    """Regulator sources and when each was last refreshed."""
-    return _sources(db)
+def sources(db: DB, category: Literal["medicine", "food"] = "medicine"):
+    """Regulator sources for a category and when each was last refreshed."""
+    return _sources(db, category)
 
 
 # --------------------------------------------------------------------------- workspace endpoints

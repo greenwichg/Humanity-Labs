@@ -61,7 +61,8 @@ def client_ip(request: Request) -> str | None:
     if get_settings().trust_proxy_headers:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            return forwarded.split(",")[0].strip()[:64]
+            # The rightmost entry is the one our proxy appended; anything to its left came from the client.
+            return forwarded.split(",")[-1].strip()[:64]
     return request.client.host if request.client else None
 
 

@@ -13,7 +13,7 @@ import re
 from bs4 import BeautifulSoup
 
 from ..config import get_settings
-from ..food.verify import check_barcode
+from ..food.verify import UPC_FIRST, gtins_in_text
 from ..lots import LotRef, extract_lots, html_tables
 from .base import AlertRecord, register
 from .healthcanada import HealthCanadaRecalls, clean, company_from_page, parse_date
@@ -23,9 +23,38 @@ ALL_CODES_RE = re.compile(r"\ball\s+(?:codes|units|lots|best before dates?|produ
 NO_BRAND = re.compile(r"^(none|n/?a|not applicable|no brand)\b", re.IGNORECASE)
 
 
+SENTENCE_STARTS = (
+    "Do",
+    "Check",
+    "Recalled",
+    "Learn",
+    "Sign",
+    "View",
+    "Report",
+    "Consumers",
+    "If",
+    "Contact",
+    "Return",
+    "Throw",
+    "Retailers",
+    "Restaurants",
+    "Distributors",
+    "Seek",
+    "Food",
+    "Hospitals",
+    "Anyone",
+    "Keep",
+)
+_SENTENCE_RE = re.compile(r"(?<=[a-z\)])(?=(?:" + "|".join(SENTENCE_STARTS) + r")\b)")
+
+
 def restore_sentences(text: str) -> str:
-    """The open data joins list items without spaces ("recalled productsDo not consume"); split them again."""
-    return re.sub(r"(?<=[a-z\)])(?=[A-Z][a-z])", ". ", text or "")
+    """The open data joins list items without spaces ("recalled productsDo not consume").
+
+    Breaks are restored only before words that start CFIA's standard advice, so
+    names such as "McCain" or "PepsiCo" are left alone.
+    """
+    return _SENTENCE_RE.sub(". ", text or "")
 
 
 def map_food_record(item: dict) -> AlertRecord:
@@ -70,10 +99,7 @@ def enrich_food_page(record: AlertRecord, html: str) -> AlertRecord:
                 record.manufacturer = record.manufacturer or brand
             elif product:
                 record.product_names.append(product)
-            for chunk in re.split(r"[,;/]|\s{2,}|\band\b", cell("upc")):
-                barcode = check_barcode(chunk)
-                if barcode.valid:
-                    record.product_codes.append(barcode.digits)
+            record.product_codes += gtins_in_text(cell("upc"), UPC_FIRST)
             codes = cell("codes")
             if ALL_CODES_RE.search(codes):
                 record.all_lots = True

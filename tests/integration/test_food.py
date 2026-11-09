@@ -64,11 +64,11 @@ def test_food_alerts_never_reach_batchlight_stock_or_medicine_pages(client, inge
     assert client.get("/api/v1/alerts", params={"q": "surimi", "category": "food"}).json()["total"] == 1
     assert "Snow Crab" not in client.get("/check?batch=J016&product=surimi").text
     moved = client.get(f"/alerts/{alert.id}", follow_redirects=False)
-    assert moved.status_code == 301 and moved.headers["location"] == f"/food/recalls/{alert.id}"
+    assert moved.status_code == 302 and moved.headers["location"] == f"/food/recalls/{alert.id}"
     ingest("us-fda-drug")
     drug = db.scalar(select(Alert).where(Alert.category == "medicine"))
     back = client.get(f"/food/recalls/{drug.id}", follow_redirects=False)
-    assert back.status_code == 301 and back.headers["location"] == f"/alerts/{drug.id}"
+    assert back.status_code == 302 and back.headers["location"] == f"/alerts/{drug.id}"
 
 
 def test_food_recall_search_by_name_batch_barcode_and_country(client, ingest, db):
@@ -99,6 +99,8 @@ def test_verify_tools(client, ingest):
     india = client.get("/food/verify", params={"barcode": "8901058000290"}).text
     assert "GS1 India" in india and "not where the food was made" in india
     assert "Batch, lot or code number" in client.get("/food/verify").text
+    short = client.get("/food/verify", params={"barcode": "04963406"}).text
+    assert "UPC-E" in short and "049000006346" in short
 
 
 def test_consumer_pages_render(client):
@@ -146,9 +148,22 @@ def test_report_validation_and_submission(client, db):
     report = db.scalar(select(FoodReport).where(FoodReport.reference == reference))
     assert report.status == "new" and report.barcode == "8901058000290" and report.contact_email == "reporter@example.org"
     assert report.ip_hash and "testclient" not in report.ip_hash and len(report.ip_hash) == 64
-    assert reference in OUTBOX[-1]["Subject"]
+    email = OUTBOX[-1]
+    assert reference in email["Subject"] and reference in email.get_content()
+    # nothing typed into the form is echoed to the address given, so the form can't be used to send someone spam
+    for typed in ("stained everything", "Turmeric", "Patna", "Weekly market"):
+        assert typed not in email.get_content() and typed not in email["Subject"]
     # reports are never shown publicly
     assert reference not in client.get("/food/recalls", params={"q": "turmeric"}).text
+
+
+def test_acknowledgement_emails_are_capped_per_address(client, db):
+    before = len(OUTBOX)
+    for _ in range(4):
+        assert post_form(client, "/food/report", {**REPORT, "contact_email": "target@example.org"}).status_code == 200
+    sent = [m for m in OUTBOX[before:] if m["To"] == "target@example.org"]
+    assert len(sent) == 3
+    assert db.scalar(select(func.count()).select_from(FoodReport)) == 4
 
 
 def test_report_spam_controls(client, db):
@@ -238,3 +253,68 @@ def test_curated_food_alert_goes_to_food_module_only(client, db):
     assert db.scalar(select(func.count()).select_from(Match)) == 0
     assert "Example cumin batch recall" in client.get("/food/recalls", params={"q": "E080668761"}).text
     assert client.get("/api/v1/alerts", params={"q": "E080668761"}).json()["total"] == 0
+
+
+def test_moving_a_curated_alert_to_food_removes_its_stock_matches(client, db):
+    from batchlight.services.curation import CuratedAlertInput
+    from batchlight.web.routes.admin import _publish
+
+    signup(client)
+    make_curator(db)
+    post_form(client, "/app/inventory", {"product_name": "Example Paracetamol Syrup", "lot": "EPS2401"})
+    user = db.scalar(select(User))
+    fields = {
+        "regulator": "CDSCO (India)",
+        "country_code": "IN",
+        "title": "Not of standard quality: Example Paracetamol Syrup",
+        "alert_type": "substandard",
+        "severity": "high",
+        "product_names": "Example Paracetamol Syrup",
+        "batches": "EPS2401",
+        "published_at": "2026-10-15",
+        "source_url": "https://cdsco.gov.in/opencms/opencms/en/Notifications/Alerts/",
+        "external_id": "curated-example-1",
+    }
+    _, matched = _publish(db, CuratedAlertInput(category="medicine", **fields), user.id)
+    assert matched == 1 and db.scalar(select(func.count()).select_from(Match)) == 1
+    alert, matched = _publish(db, CuratedAlertInput(category="food", **fields), user.id)
+    assert alert.category == "food" and matched == 0
+    assert db.scalar(select(func.count()).select_from(Match)) == 0
+
+
+def test_api_and_sources_page_report_the_right_sources(client, ingest):
+    ingest("ca-cfia-food")
+    ingest("us-fda-drug")
+    food = client.get("/api/v1/check", params={"batch": "J016", "product": "surimi", "category": "food"}).json()
+    searched = {s["id"] for s in food["sources_searched"]}
+    assert "ca-cfia-food" in searched and "us-fda-drug" not in searched
+    assert food["results"] and food["results"][0]["batch_listed"] is True
+    medicine = client.get("/api/v1/check", params={"batch": "J016", "product": "surimi"}).json()
+    assert "ca-cfia-food" not in {s["id"] for s in medicine["sources_searched"]} and medicine["results"] == []
+    assert {s["id"] for s in client.get("/api/v1/sources", params={"category": "food"}).json()} >= {"ca-cfia-food", "us-fda-food"}
+    assert "us-fda-food" not in {s["id"] for s in client.get("/api/v1/sources").json()}
+    page = client.get("/sources").text
+    assert "Medicines" in page and "Canadian Food Inspection Agency food recalls" in page
+    assert page.index("Medicines") < page.index("Canadian Food Inspection Agency food recalls")
+
+
+def test_curated_recall_pages_say_where_they_came_from(client, db):
+    from batchlight.food.seed import seed_india_food_actions
+
+    seed_india_food_actions(db)
+    db.commit()
+    everest = db.scalar(select(Alert).where(Alert.title.like("%Everest Cumin%")))
+    page = client.get(f"/food/recalls/{everest.id}").text
+    assert "Added by our curators" in page and "businesstoday.in" in page and "Read the source report" in page
+    assert "Read the original notice" not in page
+    listing = client.get("/food/recalls", params={"country": "IN"}).text
+    assert "Added by curators" in listing
+    patanjali = db.scalar(select(Alert).where(Alert.title.like("Patanjali red chilli%")))
+    assert patanjali.lot_count == 0 and not patanjali.product_codes and not patanjali.all_lots
+    page = client.get(f"/food/recalls/{patanjali.id}").text
+    assert (
+        "No batch codes or barcodes have been published" in page
+        and "(India) (India)" not in page
+        and "If they match, don't eat" not in page
+    )
+    assert "If they match, don't eat" in client.get(f"/food/recalls/{everest.id}").text

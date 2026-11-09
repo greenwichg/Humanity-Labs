@@ -297,7 +297,7 @@ def rescore_open_matches(
             > 0
         )
         decision = None
-        if match.holding.archived_at is None:
+        if match.holding.archived_at is None and match.alert.category == "medicine":
             decision = score(facts_for_holding(match.alert, lot_key, listed), HoldingFacts.from_holding(match.holding))
         if decision is None:
             session.delete(match)

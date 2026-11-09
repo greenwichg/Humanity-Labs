@@ -1,6 +1,15 @@
 import pytest
 
-from batchlight.food.verify import barcode_variants, check_barcode, check_fssai_licence, extract_barcodes, gtin_check_digit
+from batchlight.food.verify import (
+    UPC_FIRST,
+    barcode_variants,
+    check_barcode,
+    check_fssai_licence,
+    extract_barcodes,
+    gtin_check_digit,
+    gtins_in_text,
+    upce_to_upca,
+)
 
 
 @pytest.mark.parametrize(
@@ -46,3 +55,28 @@ def test_fssai_licence_format():
 def test_extract_barcodes_keeps_only_valid_numbers():
     text = "Product X, 16 oz, UPC 0 36000 29145 2; also UPC: 036000291453 (typo); EAN 4006381333931"
     assert extract_barcodes(text) == ["036000291452", "4006381333931"]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # as printed in openFDA food enforcement records
+        ("UPC 7 41643 05576 6, 9 retail units per case", ["741643055766"]),
+        ("UPC: 687456214160 3.", ["687456214160"]),
+        ("Net Wt. 16 oz (454 g), lot 2024-118, best by 12/2026", []),
+    ],
+)
+def test_extract_barcodes_from_regulator_text(text, expected):
+    assert extract_barcodes(text) == expected
+
+
+def test_upc_e_codes_expand_to_the_upc_a_regulators_publish():
+    assert upce_to_upca("04963406") == "049000006346"
+    result = check_barcode("04963406")
+    assert result.valid and result.kind == "UPC-E"
+    assert result.search_digits == "049000006346" and result.gtin14 == "00049000006346"
+
+
+def test_cfia_upc_cells_with_several_codes():
+    assert gtins_in_text("6 926104 942661 0 12345 67890 5", UPC_FIRST) == ["6926104942661", "012345678905"]
+    assert gtins_in_text("", UPC_FIRST) == []

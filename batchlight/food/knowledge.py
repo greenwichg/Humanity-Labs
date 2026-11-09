@@ -3,9 +3,10 @@
 Rules for this content (see docs/FOOD_SAFETY.md):
 
 * Every finding names its source, year and evidence type, and links to it.
-* "official" = a regulator's own data or a parliamentary reply; "study" = a
-  peer-reviewed paper; "report" = credible news or NGO reporting of a test or
-  regulator action.
+* "official" = a regulator's own data, a government release or a parliamentary
+  reply; "study" = a peer-reviewed paper; "report" = credible news or NGO
+  reporting of a test or regulator action; "provider" = a service provider's own
+  published information, such as a laboratory's price list.
 * Findings describe what was found in samples. They never claim that a brand,
   a pack or "most" of a food is adulterated, and never suggest a home test can
   prove adulteration.
@@ -19,6 +20,7 @@ EVIDENCE_LABELS = {
     "official": "Official data",
     "study": "Peer-reviewed study",
     "report": "News or NGO report",
+    "provider": "Published by the provider",
 }
 
 
@@ -357,17 +359,18 @@ TESTING_FACTS = (
     Finding(
         "States and union territories have deployed 305 mobile food testing labs (Food Safety on Wheels), which run simple "
         "tests for common adulterants.",
-        "Press Information Bureau",
+        "Press Information Bureau release (copy hosted by Legality Simplified)",
         "2025",
         "official",
         "https://www.legalitysimplified.com/wp-content/uploads/2025/12/PIB2197617.pdf",
     ),
     Finding(
-        "A full multi-residue pesticide test costs about Rs 10,000 to Rs 14,000 at Indian public laboratories and takes "
-        "7 to 10 days.",
-        "PJTAU pesticide residue laboratory rate page",
+        "At the pesticide residue laboratory of PJTAU, a public agricultural university in Telangana, a full "
+        "multi-residue pesticide test is listed at about Rs 10,000 to Rs 14,000 and takes 7 to 10 days. Other "
+        "laboratories' prices may differ.",
+        "PJTAU pesticide residue laboratory, published rates",
         "2025-26",
-        "official",
+        "provider",
         "https://pjtau.edu.in/pesticides-lab/",
     ),
     Finding(

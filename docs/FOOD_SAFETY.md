@@ -23,7 +23,7 @@ These figures come from the research evidence file. Every figure shown in the pr
 
 These rules are enforced in code and tests (`tests/unit/test_food_knowledge.py`):
 
-- **Every finding is sourced and graded.** It names its source, year and evidence type (official data, peer-reviewed study, or news/NGO report) and links to it.
+- **Every finding is sourced and graded.** It names its source, year and evidence type (official data, peer-reviewed study, news/NGO report, or information published by the provider, such as a laboratory's price list) and links to it. Curated recalls are marked "Added by curators", and say whether they link to the regulator's notice or to a published report of it. Recalls without published batch codes or barcodes say so instead of telling people to compare codes.
 - **Samples are not packs.** A finding about samples is never presented as a finding about a brand or a pack.
 - **No unproven detection.** The product never claims or implies that a home test, photo, app or AI can detect adulteration. Each topic says plainly what cannot be checked at home.
 - **Reports are never findings.** Consumer reports are unverified. They go to a curator queue and are never published.
