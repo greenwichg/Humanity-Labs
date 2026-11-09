@@ -39,6 +39,8 @@ This repository started with a research exercise: 16 research agents investigate
 | Food Safety | Food recall search by name, batch or barcode; sourced findings on 8 common foods; FSSAI number, barcode and label checks; consumer reports with a curator queue; testing guide and a lab directory (empty until our team verifies a lab's accreditation and public access) |
 | Security | Argon2id passwords, hashed sessions, tokens and API keys, CSRF protection, strict CSP, login throttling, tenant isolation |
 
+Public works (`/infrastructure`): Project Passports for public infrastructure in India, built from official records, with missing records shown openly. See [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md).
+
 ## Run it locally
 
 Requirements: Python 3.12 or newer and PostgreSQL 14 or newer. Node.js is only needed to change the stylesheet.
@@ -51,6 +53,7 @@ createdb batchlight
 alembic upgrade head
 python -m batchlight.cli ingest             # first refresh of every source, takes several minutes
 python -m batchlight.cli seed-india         # hand-checked Indian medicine and food alerts (safe to re-run)
+python -m batchlight.cli infra-ingest       # public works: World Bank projects and civil works in India, CAG reports
 uvicorn batchlight.main:app --reload        # http://localhost:8000
 ```
 

@@ -26,6 +26,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser(
         "seed-india", aliases=["seed-food-india"], help="load the hand-checked Indian medicine and food alerts (idempotent)"
     )
+    infra = sub.add_parser("infra-ingest", help="refresh public infrastructure sources now")
+    infra.add_argument("--source", action="append", help="infra-wb-projects, infra-wb-civil-works or infra-cag-reports")
+    infra.add_argument("--cag-pages", type=int, default=None, help="how many pages of the CAG report list to read")
     ingest = sub.add_parser("ingest", help="run ingestion once")
     ingest.add_argument("--source", action="append")
     args = parser.parse_args(argv)
@@ -47,6 +50,24 @@ def main(argv: list[str] | None = None) -> int:
             created, updated, matched = seed_india_alerts(session)
         print(f"Indian alerts: {created} created, {updated} updated, {matched} new stock matches")
         return 0
+    if args.command == "infra-ingest":
+        from .db import session_factory
+        from .infra.sources import REGISTRY
+        from .infra.store import run_infra_source
+
+        if args.cag_pages:
+            REGISTRY["infra-cag-reports"].pages = args.cag_pages
+        failed = False
+        for source_id in args.source or list(REGISTRY):
+            adapter = REGISTRY.get(source_id)
+            if adapter is None:
+                print(f"{source_id}: unknown source", file=sys.stderr)
+                failed = True
+                continue
+            run = run_infra_source(session_factory(), adapter)
+            print(f"{source_id}: {run.status}, fetched {run.fetched}, new {run.created}, updated {run.updated}")
+            failed = failed or run.status != "succeeded"
+        return 1 if failed else 0
     if args.command == "rescore":
         from .matching import rescore_open_matches
 

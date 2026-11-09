@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "infra/_macros.html" import project_row with context %}
+{% block title %}Public works: who built it, for how much, and when{% endblock %}
+{% block description %}Project Passports for public infrastructure in India: approvals, funding, tenders, contractors and dates from official records, with missing records shown openly.{% endblock %}
+{% block body %}
+<section class="bg-ink-900 text-white">
+  <div class="container-page py-10 sm:py-14">
+    <h1 class="max-w-3xl text-3xl font-bold sm:text-4xl">Public works: who built it, for how much, and when</h1>
+    <p class="mt-3 max-w-2xl text-ink-100">Look up a road, bridge, dam, drain or public building and see its Project Passport: who approved and funded it, who won the contract, the price and the dates, each with a link to the official record. When a record is not published, the passport says so.</p>
+    <form method="get" action="/infrastructure/projects" role="search" class="mt-6 grid max-w-3xl gap-2 sm:grid-cols-[1fr_auto_auto]">
+      <label for="i-q" class="sr-only">Project, place, contractor or tender number</label>
+      <input id="i-q" name="q" class="input" placeholder="Project, place, contractor or tender number">
+      <label for="i-state" class="sr-only">State or union territory</label>
+      <select id="i-state" name="state" class="input"><option value="">All states and UTs</option>{% for r in regions %}<option value="{{ r.slug }}">{{ r.name }}</option>{% endfor %}</select>
+      <button class="btn-beam" type="submit">Search</button>
+    </form>
+  </div>
+</section>
+<div class="container-page space-y-10 py-10">
+  <section class="grid gap-4 sm:grid-cols-4">
+    <div class="card card-pad"><p class="text-2xl font-bold">{{ works|int }}</p><p class="text-sm text-ink-600">contracted works</p></div>
+    <div class="card card-pad"><p class="text-2xl font-bold">{{ programmes|int }}</p><p class="text-sm text-ink-600">funded programmes</p></div>
+    <div class="card card-pad"><p class="text-2xl font-bold">{{ contractors|int }}</p><p class="text-sm text-ink-600">contractors named in award notices</p></div>
+    <div class="card card-pad"><p class="text-2xl font-bold">{{ covered }} of 36</p><p class="text-sm text-ink-600">states and UTs with at least one work</p></div>
+  </section>
+
+  <section class="rounded-xl bg-beam-50 p-4 text-sm text-ink-900 ring-1 ring-beam-200">
+    <p class="font-semibold">What this covers today</p>
+    <p class="mt-1">Today the passports come from World Bank–financed programmes in India and their civil-works tenders and contract awards, plus audit reports from the Comptroller and Auditor General. Most public works in India are not financed by the World Bank, so most of them are not here yet. State procurement portals, PMGSY rural roads and central project monitoring are not connected yet. <a href="/infrastructure/sources">See every source and what is missing</a>.</p>
+  </section>
+
+  <section id="states" aria-labelledby="states-h">
+    <h2 id="states-h" class="text-xl font-bold">States and union territories</h2>
+    <p class="mt-1 text-sm text-ink-600">Number of contracted works we hold for each. A low number means our sources cover little there, not that nothing was built.</p>
+    <ul class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {% for r in regions %}
+      <li><a href="/infrastructure/states/{{ r.slug }}" class="flex items-center justify-between rounded-lg bg-white px-4 py-3 no-underline ring-1 ring-ink-100 hover:bg-ink-50">
+        <span class="font-medium text-ink-900">{{ r.name }}{% if r.kind != "state" %} <span class="text-xs font-normal text-ink-500">(UT)</span>{% endif %}</span>
+        <span class="text-sm {{ 'text-ink-900' if counts.get(r.slug) else 'text-ink-500' }}">{{ counts.get(r.slug, 0)|int }} {{ "work" if counts.get(r.slug, 0) == 1 else "works" }}</span>
+      </a></li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  {% if recent %}
+  <section aria-labelledby="recent-h">
+    <h2 id="recent-h" class="text-xl font-bold">Recently awarded contracts</h2>
+    <ul class="mt-4 space-y-3">{% for p in recent %}{{ project_row(p) }}{% endfor %}</ul>
+    <p class="mt-3 text-sm"><a href="/infrastructure/projects?level=work">See all contracted works</a></p>
+  </section>
+  {% endif %}
+
+  <section class="text-sm text-ink-700">
+    <h2 class="text-xl font-bold text-ink-900">How to read a Project Passport</h2>
+    <ul class="mt-2 list-disc space-y-1 pl-5">
+      <li>Every answer links to the official record it comes from, and is labelled: official record, official finding, calculated by us, news report, or citizen evidence.</li>
+      <li>When a record is not published, the passport says “Not published” and why. We never fill gaps with guesses.</li>
+      <li>A contract award, a passed deadline or a cost change is not, by itself, evidence of wrongdoing.</li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

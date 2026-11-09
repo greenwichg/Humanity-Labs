@@ -21,7 +21,8 @@
       {% set medicine_paths = ["/medicines", "/check", "/alerts", "/manufacturers", "/impact"] %}
       {% set in_medicines = path in medicine_paths or path.startswith("/alerts/") or path.startswith("/manufacturers/") %}
       {% set in_food = path.startswith("/food") %}
-      {% set nav = [("/medicines", "Medicines", in_medicines), ("/food", "Food", in_food), ("/about", "How it works", path == "/about")] %}
+      {% set in_infra = path.startswith("/infrastructure") %}
+      {% set nav = [("/medicines", "Medicines", in_medicines), ("/food", "Food", in_food), ("/infrastructure", "Public works", in_infra), ("/about", "How it works", path == "/about")] %}
       <nav aria-label="Main" class="hidden items-center gap-1 md:flex">
         {% for href, label, active in nav %}
         <a href="{{ href }}" class="nav-link {% if active %}nav-link-active{% endif %}" {% if active %}aria-current="page"{% endif %}>{{ label }}</a>
@@ -49,14 +50,16 @@
         </details>
       </div>
     </div>
-    {% if in_medicines or in_food %}
-    {% if in_food %}
+    {% if in_medicines or in_food or in_infra %}
+    {% if in_infra %}
+      {% set subnav = [("/infrastructure", "Overview"), ("/infrastructure/projects", "Find a project"), ("/infrastructure/sources", "Sources and coverage")] %}
+    {% elif in_food %}
       {% set subnav = [("/food", "Overview"), ("/food/recalls", "Recalls"), ("/food/reported", "What tests found"), ("/food/verify", "Check a product"), ("/food/testing", "Get food tested")] %}
     {% else %}
       {% set subnav = [("/medicines", "Overview"), ("/check", "Check a batch"), ("/alerts", "Alerts"), ("/manufacturers", "Manufacturers"), ("/impact", "Impact")] %}
     {% endif %}
     <div class="border-t border-ink-800 bg-ink-950/40">
-      <nav aria-label="{{ 'Food' if in_food else 'Medicines' }} section" class="container-page flex flex-wrap gap-1 py-1.5 text-sm">
+      <nav aria-label="{{ 'Public works' if in_infra else ('Food' if in_food else 'Medicines') }} section" class="container-page flex flex-wrap gap-1 py-1.5 text-sm">
         {% for href, label in subnav %}
         {% set active = path == href or (href not in ("/food", "/medicines") and path.startswith(href)) %}
         <a href="{{ href }}" class="whitespace-nowrap rounded-md px-3 py-1.5 no-underline {{ 'bg-ink-800 text-white' if active else 'text-ink-200 hover:text-white' }}" {% if active %}aria-current="page"{% endif %}>{{ label }}</a>

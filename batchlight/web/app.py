@@ -17,7 +17,7 @@ from ..config import get_settings
 from ..db import session_scope
 from ..ingest import ensure_sources
 from .auth import CSRF_COOKIE, FLASH_COOKIE, CsrfFailed, Forbidden, LoginRequired, WorkspaceRequired, csrf_token
-from .routes import admin, admin_food, api, auth_routes, food, public, workspace
+from .routes import admin, admin_food, api, auth_routes, food, infra, public, workspace
 from .templating import render
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -166,7 +166,16 @@ def create_app() -> FastAPI:
         )
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-    for router in (public.router, food.router, auth_routes.router, workspace.router, admin.router, admin_food.router, api.router):
+    for router in (
+        public.router,
+        food.router,
+        infra.router,
+        auth_routes.router,
+        workspace.router,
+        admin.router,
+        admin_food.router,
+        api.router,
+    ):
         app.include_router(router)
     return app
 

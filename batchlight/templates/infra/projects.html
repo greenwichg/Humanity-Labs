@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "infra/_macros.html" import project_row with context %}
+{% from "macros.html" import pagination with context %}
+{% block title %}Find a public works project{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <h1 class="text-2xl font-bold sm:text-3xl">{% if party %}Works awarded to {{ party.name }}{% else %}Find a public works project{% endif %}</h1>
+  <form method="get" role="search" class="mt-4 grid max-w-4xl gap-2 sm:grid-cols-[1fr_auto_auto_auto_auto]">
+    <label for="p-q" class="sr-only">Project, place, contractor or tender number</label>
+    <input id="p-q" name="q" value="{{ q }}" class="input" placeholder="Project, place, contractor or tender number">
+    <label for="p-state" class="sr-only">State or UT</label>
+    <select id="p-state" name="state" class="input"><option value="">All states and UTs</option>{% for r in regions %}<option value="{{ r.slug }}" {% if r.slug == state %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
+    <label for="p-type" class="sr-only">Type of work</label>
+    <select id="p-type" name="type" class="input"><option value="">All types</option>{% for key, label in types.items() %}<option value="{{ key }}" {% if key == type %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <label for="p-level" class="sr-only">Programmes or works</label>
+    <select id="p-level" name="level" class="input"><option value="">Programmes and works</option><option value="work" {% if level == "work" %}selected{% endif %}>Contracted works</option><option value="programme" {% if level == "programme" %}selected{% endif %}>Programmes</option></select>
+    {% if party %}<input type="hidden" name="contractor" value="{{ party.id }}">{% endif %}
+    <button class="btn-primary" type="submit">Search</button>
+  </form>
+  <p class="mt-6 text-sm text-ink-600">{{ page.total|int }} result{{ "s" if page.total != 1 }}{% if q %} for “{{ q }}”{% endif %}{% if state %} in {{ region_name(state) }}{% endif %}, newest first.</p>
+  {% if page.items %}
+  <ul class="mt-3 space-y-3">{% for p in page.items %}{{ project_row(p) }}{% endfor %}</ul>
+  {{ pagination(page.page, page.pages) }}
+  {% else %}
+  <div class="mt-3 rounded-xl bg-beam-50 p-4 text-ink-900 ring-1 ring-beam-200">
+    <p class="font-semibold">No project found{% if q %} for “{{ q }}”{% endif %}.</p>
+    <p class="mt-1 text-sm">Our sources cover only some public works in India so far, so the project may exist and simply not be here yet. <a href="/infrastructure/sources">See which sources are connected</a>.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

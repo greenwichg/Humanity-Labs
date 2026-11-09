@@ -15,6 +15,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -420,3 +421,155 @@ class TestingLab(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = created_at()
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+# --------------------------------------------------------------------------- public infrastructure
+
+INFRA_LEVELS = ("programme", "work")
+INFRA_EVIDENCE = ("official", "official_finding", "calculated", "report", "citizen")
+
+
+class InfraProject(Base):
+    """A Project Passport: a funded programme, or one contracted work within it.
+
+    Only facts taken from a named source are stored. Anything a source does not publish stays empty,
+    and the passport says it is missing.
+    """
+
+    __tablename__ = "infra_projects"
+    __table_args__ = (
+        UniqueConstraint("source_id", "external_id", name="uq_infra_project_source_external"),
+        CheckConstraint(_in("level", INFRA_LEVELS), name="infra_level_valid"),
+        Index("ix_infra_projects_states", "state_slugs", postgresql_using="gin"),
+        Index("ix_infra_projects_search", "search", postgresql_using="gin"),
+        Index("ix_infra_projects_type_awarded", "asset_type", "awarded_on"),
+        Index("ix_infra_projects_parent", "parent_id"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    level: Mapped[str] = mapped_column(String(10), nullable=False)
+    parent_external_id: Mapped[str | None] = mapped_column(String(200))
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("infra_projects.id", ondelete="SET NULL"))
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    asset_type: Mapped[str] = mapped_column(String(20), nullable=False, default="other", server_default="other")
+    state_slugs: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list, server_default="{}")
+    state_basis: Mapped[str | None] = mapped_column(String(20))  # "source", "name" or "programme"
+    funder: Mapped[str | None] = mapped_column(Text)
+    borrower: Mapped[str | None] = mapped_column(Text)
+    implementing_agency: Mapped[str | None] = mapped_column(Text)
+    tendering_body: Mapped[str | None] = mapped_column(Text)
+    budget_amount: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    budget_currency: Mapped[str | None] = mapped_column(String(3))
+    funder_amount: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    funder_currency: Mapped[str | None] = mapped_column(String(3))
+    contract_amount: Mapped[float | None] = mapped_column(Numeric(20, 2))
+    contract_currency: Mapped[str | None] = mapped_column(String(3))
+    contractors_text: Mapped[str | None] = mapped_column(Text)
+    procurement_method: Mapped[str | None] = mapped_column(String(100))
+    bids_evaluated: Mapped[int | None] = mapped_column(Integer)
+    bids_rejected: Mapped[int | None] = mapped_column(Integer)
+    approved_on: Mapped[date | None] = mapped_column(Date)
+    tendered_on: Mapped[date | None] = mapped_column(Date)
+    bid_deadline_on: Mapped[date | None] = mapped_column(Date)
+    awarded_on: Mapped[date | None] = mapped_column(Date)
+    duration_text: Mapped[str | None] = mapped_column(String(50))
+    promised_completion_on: Mapped[date | None] = mapped_column(Date)
+    promised_basis: Mapped[str | None] = mapped_column(String(20))  # "source" or "calculated"
+    actual_completion_on: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str | None] = mapped_column(String(50))
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    tender_url: Mapped[str | None] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}", deferred=True)
+    created_at: Mapped[datetime] = created_at()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    search: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('simple', left(coalesce(title, ''), 1000) || ' ' || left(coalesce(description, ''), 4000) || ' ' || "
+            "left(coalesce(implementing_agency, ''), 1000) || ' ' || left(coalesce(tendering_body, ''), 500) || ' ' || "
+            "left(coalesce(contractors_text, ''), 1000) || ' ' || coalesce(external_id, ''))",
+            persisted=True,
+        ),
+        deferred=True,
+    )
+
+    source: Mapped[Source] = relationship()
+    parent: Mapped[InfraProject | None] = relationship(remote_side="InfraProject.id")
+    events: Mapped[list[InfraEvent]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", order_by="InfraEvent.occurred_on.asc().nulls_last()"
+    )
+    parties: Mapped[list[InfraProjectParty]] = relationship(back_populates="project", cascade="all, delete-orphan")
+
+
+class InfraParty(Base):
+    """A contractor or agency named in official records. One row per normalised name."""
+
+    __tablename__ = "infra_parties"
+    __table_args__ = (UniqueConstraint("key", "kind", name="uq_infra_party_key_kind"),)
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    key: Mapped[str] = mapped_column(String(300), nullable=False)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="contractor", server_default="contractor")
+    created_at: Mapped[datetime] = created_at()
+
+
+class InfraProjectParty(Base):
+    __tablename__ = "infra_project_parties"
+
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("infra_projects.id", ondelete="CASCADE"), primary_key=True)
+    party_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("infra_parties.id", ondelete="CASCADE"), primary_key=True, index=True)
+    role: Mapped[str] = mapped_column(String(20), primary_key=True, default="contractor")
+
+    project: Mapped[InfraProject] = relationship(back_populates="parties")
+    party: Mapped[InfraParty] = relationship()
+
+
+class InfraEvent(Base):
+    """One dated step in a project's history, with what kind of evidence supports it."""
+
+    __tablename__ = "infra_events"
+    __table_args__ = (
+        UniqueConstraint("project_id", "key", name="uq_infra_event_project_key"),
+        CheckConstraint(_in("evidence", INFRA_EVIDENCE), name="infra_event_evidence_valid"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("infra_projects.id", ondelete="CASCADE"), nullable=False)
+    key: Mapped[str] = mapped_column(String(200), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    occurred_on: Mapped[date | None] = mapped_column(Date)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text)
+    evidence: Mapped[str] = mapped_column(String(20), nullable=False, default="official")
+    source_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = created_at()
+
+    project: Mapped[InfraProject] = relationship(back_populates="events")
+
+
+class InfraDocument(Base):
+    """An official document about public works that is not (yet) linked to one project, such as a CAG audit report."""
+
+    __tablename__ = "infra_documents"
+    __table_args__ = (
+        UniqueConstraint("source_id", "external_id", name="uq_infra_document_source_external"),
+        Index("ix_infra_documents_states", "state_slugs", postgresql_using="gin"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="audit_report")
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    report_type: Mapped[str | None] = mapped_column(String(50))
+    sectors: Mapped[str | None] = mapped_column(Text)
+    state_slugs: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list, server_default="{}")
+    published_on: Mapped[date | None] = mapped_column(Date)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = created_at()

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "infra/_macros.html" import project_row with context %}
+{% block title %}Public works in {{ region.name }}{% endblock %}
+{% block body %}
+<div class="container-page max-w-5xl py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/infrastructure">Public works</a> › <a href="/infrastructure#states">States and UTs</a></nav>
+  <h1 class="mt-2 text-2xl font-bold sm:text-3xl">Public works in {{ region.name }}</h1>
+  <p class="mt-1 text-sm text-ink-600">{{ region.kind|capitalize }}</p>
+  <div class="mt-6 grid gap-4 sm:grid-cols-3">
+    <div class="card card-pad"><p class="text-2xl font-bold">{{ works|int }}</p><p class="text-sm text-ink-600">contracted works in our sources</p></div>
+    <div class="card card-pad sm:col-span-2"><p class="text-sm text-ink-700">{% if by_type %}{% for kind, n in by_type %}{{ ASSET_TYPES.get(kind, kind) }}: {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}No contracted works from our connected sources yet.{% endif %}</p></div>
+  </div>
+  <div class="mt-4 rounded-xl bg-beam-50 p-4 text-sm text-ink-900 ring-1 ring-beam-200">
+    <p class="font-semibold">What is missing for {{ region.name }}</p>
+    <p class="mt-1">We only hold works financed by the World Bank so far. Works tendered on {{ region.name }}'s own e-procurement portal, PMGSY rural roads and large central projects are not connected yet, so most public works here are not listed. <a href="/infrastructure/sources">See all sources</a>.</p>
+  </div>
+  <p class="mt-6"><a href="/infrastructure/projects?state={{ region.slug }}" class="btn-primary">Search projects in {{ region.name }}</a></p>
+
+  {% if recent %}
+  <section class="mt-8" aria-labelledby="recent-h"><h2 id="recent-h" class="text-xl font-bold">Latest works</h2><ul class="mt-3 space-y-3">{% for p in recent %}{{ project_row(p) }}{% endfor %}</ul></section>
+  {% endif %}
+  {% if programmes %}
+  <section class="mt-8" aria-labelledby="prog-h"><h2 id="prog-h" class="text-xl font-bold">Funded programmes covering {{ region.name }}</h2><ul class="mt-3 space-y-3">{% for p in programmes %}{{ project_row(p) }}{% endfor %}</ul></section>
+  {% endif %}
+  <section class="mt-8" aria-labelledby="audit-h">
+    <h2 id="audit-h" class="text-xl font-bold">Audit reports</h2>
+    {% if audits %}
+    <p class="mt-1 text-sm text-ink-600">Reports by the Comptroller and Auditor General that may cover public works in {{ region.name }}. Read the report for the auditor's findings; we have not linked them to individual projects yet.</p>
+    <ul class="mt-3 space-y-2 text-sm">{% for d in audits %}<li><a href="{{ d.url }}" rel="noopener noreferrer" target="_blank">{{ d.title }}</a> <span class="text-ink-500">· {{ d.published_on|date("") }}{% if d.sectors %} · {{ d.sectors }}{% endif %}</span></li>{% endfor %}</ul>
+    {% else %}<p class="mt-2 text-sm text-ink-600">No audit reports on public works for {{ region.name }} in the pages of the CAG website we have read so far.</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

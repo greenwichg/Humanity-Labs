@@ -39,6 +39,25 @@ def run_once(only: list[str] | None = None) -> dict[str, str]:
             results[source_id] = f"failed: {exc}"
         if _stop:
             break
+    if not only:
+        results.update(run_infra_due())
+    return results
+
+
+def run_infra_due() -> dict[str, str]:
+    """Public infrastructure sources that are due, each on its own interval."""
+    from .infra.store import due_sources, run_infra_source
+
+    with session_scope() as session:
+        due = due_sources(session)
+    results = {}
+    for adapter in due:
+        if _stop:
+            break
+        run = run_infra_source(session_factory(), adapter)
+        results[adapter.id] = f"{run.status}: fetched {run.fetched}, new {run.created}, updated {run.updated}" + (
+            f" ({run.error})" if run.error else ""
+        )
     return results
 
 

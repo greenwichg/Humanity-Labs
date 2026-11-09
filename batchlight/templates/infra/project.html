@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% from "infra/_macros.html" import badge, project_row, legend with context %}
+{% block title %}{{ p.title[:80] }} · Project Passport{% endblock %}
+{% block body %}
+<div class="container-page max-w-5xl py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/infrastructure">Public works</a>{% for s in p.state_slugs[:1] %} › <a href="/infrastructure/states/{{ s }}">{{ region_name(s) }}</a>{% endfor %}{% if parent %} › <a href="/infrastructure/projects/{{ parent.id }}">Programme</a>{% endif %}</nav>
+  <p class="mt-3 text-xs font-semibold uppercase tracking-wide text-ink-500">Project Passport · {{ "Programme" if p.level == "programme" else "Contracted work" }}</p>
+  <h1 class="mt-1 text-2xl font-bold sm:text-3xl">{{ p.title }}</h1>
+  <p class="mt-2 text-sm text-ink-600">Reference {{ p.external_id }}{% if parent %} · part of <a href="/infrastructure/projects/{{ parent.id }}">{{ parent.title }}</a>{% elif p.data and p.data.get("project_name") %} · part of {{ p.data.get("project_name") }}{% endif %}</p>
+  {% if p.description and p.description != p.title %}<p class="mt-3 max-w-3xl text-ink-800">{{ p.description[:1200] }}{% if p.description|length > 1200 %}…{% endif %}</p>{% endif %}
+
+  <section aria-labelledby="facts-h" class="mt-8">
+    <h2 id="facts-h" class="text-xl font-bold">What the records show</h2>
+    <dl class="mt-3 divide-y divide-ink-100 rounded-xl bg-white ring-1 ring-ink-100">
+      {% for f in known %}
+      <div class="grid gap-1 p-4 sm:grid-cols-[14rem_1fr]">
+        <dt class="text-sm font-semibold text-ink-700">{{ f.question }}</dt>
+        <dd>
+          <p class="text-ink-950">{{ f.answer }}</p>
+          <p class="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink-600">{% if f.evidence %}{{ badge(f.evidence) }}{% endif %}{% if f.note %}<span>{{ f.note }}</span>{% endif %}{% if f.source_url %}<a href="{{ f.source_url }}" rel="noopener noreferrer" target="_blank">Source</a>{% endif %}</p>
+        </dd>
+      </div>
+      {% endfor %}
+    </dl>
+  </section>
+
+  <section aria-labelledby="missing-h" class="mt-8">
+    <h2 id="missing-h" class="text-xl font-bold">Not published, or not in our sources yet</h2>
+    <p class="mt-1 text-sm text-ink-600">We show these gaps instead of guessing. A missing record is not evidence of a problem.</p>
+    <ul class="mt-3 divide-y divide-ink-100 rounded-xl bg-white ring-1 ring-ink-100">
+      {% for f in missing %}<li class="p-4"><p class="font-semibold text-ink-800">{{ f.question }}</p><p class="mt-1 text-sm text-ink-600">{{ f.note or "Not published in the sources we use." }}</p></li>{% endfor %}
+    </ul>
+    <div class="mt-3 rounded-xl bg-beam-50 p-4 text-sm text-ink-900 ring-1 ring-beam-200">
+      <p class="font-semibold">How to ask for a missing record</p>
+      <p class="mt-1">Under the Right to Information Act you can ask the department that awarded the work for records such as the estimate, measurement books, completion certificate, payments and inspection reports. Requests to central government bodies can be filed at <a href="https://rtionline.gov.in/" rel="noopener noreferrer" target="_blank">rtionline.gov.in</a>; each state has its own arrangements. Quote the reference number shown above.</p>
+    </div>
+  </section>
+
+  {% if contractors %}
+  <section aria-labelledby="contractors-h" class="mt-8">
+    <h2 id="contractors-h" class="text-xl font-bold">Contractor</h2>
+    <ul class="mt-3 space-y-2">{% for c in contractors %}<li><a href="/infrastructure/contractors/{{ c.id }}" class="font-medium">{{ c.name }}</a> <span class="text-sm text-ink-600">· see other works awarded to this name</span></li>{% endfor %}</ul>
+    <p class="mt-2 text-sm text-ink-600">Names are as printed in the award notice. Different companies can have similar names.</p>
+  </section>
+  {% endif %}
+
+  <section aria-labelledby="timeline-h" class="mt-8">
+    <h2 id="timeline-h" class="text-xl font-bold">Project history</h2>
+    {% if events %}
+    <ol class="mt-3 space-y-3 border-l-2 border-ink-100 pl-4">
+      {% for e in events %}
+      <li>
+        <p class="text-sm text-ink-500">{{ e.occurred_on|date("Date not given") }}</p>
+        <p class="font-semibold text-ink-950">{{ e.title }}</p>
+        {% if e.detail %}<p class="text-sm text-ink-700">{{ e.detail }}</p>{% endif %}
+        <p class="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink-600">{{ badge(e.evidence) }} <span>{{ e.source_name }}</span>{% if e.source_url %}<a href="{{ e.source_url }}" rel="noopener noreferrer" target="_blank">Source</a>{% endif %}</p>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}<p class="mt-2 text-sm text-ink-600">No dated records yet.</p>{% endif %}
+    {{ legend() }}
+  </section>
+
+  {% if p.level == "programme" %}
+  <section aria-labelledby="works-h" class="mt-8">
+    <h2 id="works-h" class="text-xl font-bold">Contracted works in this programme</h2>
+    {% if works %}
+    <p class="mt-1 text-sm text-ink-600">{{ works_total|int }} work{{ "s" if works_total != 1 }} from tender and award notices{% if works_total > works|length %}; showing the newest {{ works|length }}{% endif %}.</p>
+    <ul class="mt-3 space-y-3">{% for w in works %}{{ project_row(w) }}{% endfor %}</ul>
+    {% if works_total > works|length %}<p class="mt-3 text-sm"><a href="/infrastructure/projects?q={{ p.external_id|urlencode }}&level=work">Search all works in this programme</a></p>{% endif %}
+    {% else %}<p class="mt-2 text-sm text-ink-600">No civil-works notices for this programme in our sources.</p>{% endif %}
+  </section>
+  {% endif %}
+
+  {% if audits %}
+  <section aria-labelledby="audits-h" class="mt-8">
+    <h2 id="audits-h" class="text-xl font-bold">Audit reports for this state</h2>
+    <p class="mt-1 text-sm text-ink-600">Reports by the Comptroller and Auditor General that cover public works. They are not linked to this project, and may not mention it.</p>
+    <ul class="mt-3 space-y-2 text-sm">{% for d in audits %}<li><a href="{{ d.url }}" rel="noopener noreferrer" target="_blank">{{ d.title }}</a> <span class="text-ink-500">· {{ d.published_on|date("") }}</span></li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+
+  <p class="mt-10 text-sm text-ink-600">Source: <a href="{{ p.source_url }}" rel="noopener noreferrer" target="_blank">{{ source.name if source else "official record" }}</a>. Last updated in our database {{ p.updated_at|date }}. This page shows what official records say. A contract award, a passed date or a change in cost is not, by itself, evidence of wrongdoing.</p>
+</div>
+{% endblock %}
