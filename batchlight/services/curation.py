@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from ..ingest.base import AlertRecord
 from ..lots import LotRef, extract_lots
-from ..models import ALERT_TYPES, SEVERITIES
+from ..models import ALERT_TYPES, CATEGORIES, SEVERITIES
 from ..text import lot_key
 
 
@@ -23,6 +23,7 @@ def _split(value: str | None) -> list[str]:
 class CuratedAlertInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
+    category: str = "medicine"
     regulator: str = Field(min_length=2, max_length=100)
     country_code: str | None = Field(default=None, pattern=r"^[A-Za-z]{2}$")
     title: str = Field(min_length=5, max_length=500)
@@ -43,6 +44,14 @@ class CuratedAlertInput(BaseModel):
     @classmethod
     def blank_to_none(cls, value):
         return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def valid_category(cls, value):
+        value = (value or "medicine").strip().lower() if isinstance(value, str) else "medicine"
+        if value not in CATEGORIES:
+            raise ValueError(f"must be one of {', '.join(CATEGORIES)}")
+        return value
 
     @field_validator("alert_type")
     @classmethod
@@ -95,11 +104,13 @@ class CuratedAlertInput(BaseModel):
             lots_text=", ".join(lot.lot for lot in lots) or None,
             regulator=self.regulator,
             country_code=self.country_code.upper() if self.country_code else None,
+            category=self.category,
             raw={"curated": True},
         )
 
 
 CURATED_CSV_COLUMNS = [
+    "category",
     "regulator",
     "country_code",
     "title",

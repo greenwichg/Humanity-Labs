@@ -5,7 +5,7 @@
 <div class="container-page py-8">
   <div class="flex flex-wrap items-end justify-between gap-3">
     <div><h1 class="text-2xl font-bold">Curator console</h1><p class="text-ink-600">Keep sources healthy and add alerts from regulators that publish only PDFs or images.</p></div>
-    <div class="flex gap-2"><a href="/admin/alerts/new" class="btn-primary">Enter an alert</a><a href="/admin/alerts/import" class="btn-secondary">Import alerts CSV</a></div>
+    <div class="flex flex-wrap gap-2"><a href="/admin/alerts/new" class="btn-primary">Enter an alert</a><a href="/admin/alerts/import" class="btn-secondary">Import alerts CSV</a><a href="/admin/food/reports" class="btn-secondary">Food reports{% if new_reports %} ({{ new_reports }} new){% endif %}</a><a href="/admin/food/labs" class="btn-secondary">Testing labs</a></div>
   </div>
   <section class="card mt-6 overflow-x-auto">
     <table class="table">
@@ -13,7 +13,7 @@
       <tbody>
       {% for s in sources %}
         <tr>
-          <td><span class="font-semibold">{{ s.country_code|flag }} {{ s.name }}</span><div class="text-xs text-ink-500">{{ s.id }}{% if not s.automated %} · curated{% endif %}</div></td>
+          <td><span class="font-semibold">{{ s.country_code|flag }} {{ s.name }}</span><div class="text-xs text-ink-500">{{ s.id }} · {{ s.category }}{% if not s.automated %} · curated{% endif %}</div></td>
           <td>{{ counts.get(s.id, 0)|int }}</td>
           <td class="whitespace-nowrap">{{ s.last_success_at|ago if s.automated else "—" }}</td>
           <td class="max-w-xs">{% if s.id in running %}<span class="badge bg-sky-100 text-sky-800">Running</span>{% elif not s.enabled %}<span class="tag">Paused</span>{% elif s.last_error %}<span class="badge bg-red-100 text-red-800">Failing</span><div class="mt-1 line-clamp-2 text-xs text-red-800">{{ s.last_error }}</div>{% elif s.automated %}<span class="badge bg-emerald-100 text-emerald-800">Healthy</span>{% endif %}</td>

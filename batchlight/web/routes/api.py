@@ -33,6 +33,7 @@ class LotOut(BaseModel):
 
 class AlertOut(BaseModel):
     id: uuid.UUID
+    category: str
     source: str
     regulator: str
     country_code: str | None
@@ -56,6 +57,7 @@ class AlertOut(BaseModel):
     def of(cls, alert: Alert, lots: list[tuple[str, str | None]]) -> AlertOut:
         return cls(
             id=alert.id,
+            category=alert.category,
             source=alert.source_id,
             regulator=alert.regulator,
             country_code=alert.country_code,
@@ -254,9 +256,11 @@ def list_alerts(
     alert_type: Literal[ALERT_TYPES] | None = None,  # type: ignore[valid-type]
     page: Annotated[int, Query(ge=1, le=10_000)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 25,
+    category: Literal["medicine", "food"] = "medicine",
+    country: Annotated[str | None, Query(pattern=r"^[A-Z]{2}$")] = None,
 ):
-    """Search alerts by text or batch number, newest first."""
-    result = search_alerts(db, q, source, severity, alert_type, page, per_page)
+    """Search alerts by text, batch number or (for food) barcode, newest first. Medicine alerts by default."""
+    result = search_alerts(db, q, source, severity, alert_type, page, per_page, category=category, country=country)
     lots = first_lots(db, [a.id for a in result.items], LIST_BATCHES)
     return AlertPage(
         total=result.total, page=result.page, per_page=result.per_page, items=[AlertOut.of(a, lots[a.id]) for a in result.items]
@@ -293,11 +297,12 @@ def check(
     batch: Annotated[str, Query(max_length=100)] = "",
     product: Annotated[str | None, Query(max_length=200)] = None,
     manufacturer: Annotated[str | None, Query(max_length=200)] = None,
+    category: Literal["medicine", "food"] = "medicine",
 ):
     """Check a batch number, optionally with product name and manufacturer, against every source."""
     if not batch.strip() and not (product or "").strip():
         raise HTTPException(422, "Provide a batch number, a product name, or both")
-    hits = check_batch(db, batch, product, manufacturer)
+    hits = check_batch(db, batch, product, manufacturer, category=category)
     lots = first_lots(db, [h.alert.id for h in hits], LIST_BATCHES)
     return CheckOut(
         batch=batch,

@@ -50,6 +50,7 @@ class AlertRecord:
     lots_text: str | None = None
     regulator: str | None = None  # overrides the source's regulator (curated alerts)
     country_code: str | None = None  # overrides the source's country (curated alerts)
+    category: str | None = None  # overrides the source's category (curated alerts)
     partial: bool = False  # summary only: keep details (batches, company, codes) already stored
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -66,6 +67,7 @@ class SourceAdapter(ABC):
     regulator: str
     country_code: str | None
     homepage_url: str
+    category: str = "medicine"
     automated: bool = True
 
     @abstractmethod
@@ -166,13 +168,14 @@ def ensure_sources(session: Session) -> None:
                     regulator=adapter.regulator,
                     country_code=adapter.country_code,
                     homepage_url=adapter.homepage_url,
+                    category=adapter.category,
                     automated=adapter.automated,
                     enabled=not adapter.automated or adapter.id in settings.sources,
                 )
             )
         else:
             row.name, row.regulator, row.country_code = adapter.name, adapter.regulator, adapter.country_code
-            row.homepage_url, row.automated = adapter.homepage_url, adapter.automated
+            row.homepage_url, row.automated, row.category = adapter.homepage_url, adapter.automated, adapter.category
     session.flush()
 
 
@@ -193,6 +196,7 @@ def upsert_alert(
         session.add(alert)
     alert.regulator = record.regulator or source.regulator
     alert.country_code = record.country_code or source.country_code or None
+    alert.category = record.category or source.category
     alert.alert_type = record.alert_type
     alert.severity = record.severity
     alert.classification = truncate(record.classification, 100) or None

@@ -75,3 +75,28 @@
   {{ caller() if caller }}
 </div>
 {%- endmacro %}
+
+{% macro evidence(kind) -%}
+{% set styles = {"official": "bg-emerald-100 text-emerald-900", "study": "bg-sky-100 text-sky-900", "report": "bg-ink-100 text-ink-800"} %}
+<span class="badge {{ styles.get(kind, 'bg-ink-100 text-ink-800') }}">{{ evidence_labels.get(kind, kind) }}</span>
+{%- endmacro %}
+
+{% macro finding(f) -%}
+<li class="rounded-xl bg-white p-4 ring-1 ring-ink-100">
+  <p class="text-ink-900">{{ f.text }}</p>
+  <p class="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-500">{{ evidence(f.evidence) }} <span>{{ f.source }}, {{ f.year }}</span> <a href="{{ f.url }}" rel="noopener noreferrer" target="_blank">Source</a></p>
+</li>
+{%- endmacro %}
+
+{% macro food_alert_row(alert) -%}
+<li class="card stripe-{{ alert.severity }} overflow-hidden">
+  <a href="/food/recalls/{{ alert.id }}" class="block p-4 no-underline hover:bg-ink-50 sm:p-5">
+    <div class="flex flex-wrap items-center gap-2">
+      {{ severity(alert.severity) }}
+      <span class="text-xs text-ink-500">{{ alert.country_code|flag }} {{ alert.regulator }} · {{ alert.published_at|date }}</span>
+    </div>
+    <p class="mt-2 font-semibold text-ink-950">{{ alert.title }}</p>
+    {% if alert.reason %}<p class="mt-1 text-sm text-ink-600">{{ alert.reason[:160] }}{% if alert.reason|length > 160 %}…{% endif %}</p>{% endif %}
+  </a>
+</li>
+{%- endmacro %}

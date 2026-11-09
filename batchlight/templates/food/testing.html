@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% from "macros.html" import finding with context %}
+{% block title %}Get food tested{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <h1 class="text-2xl font-bold sm:text-3xl">Get food tested</h1>
+  <p class="mt-2 max-w-3xl text-ink-600">Only a properly equipped laboratory can confirm what is in food. Here is how to use one, what it costs, and labs whose accreditation a curator has checked.</p>
+
+  <div class="mt-6 grid gap-6 lg:grid-cols-3">
+    <div class="space-y-6 lg:col-span-2">
+      <section class="card card-pad">
+        <h2 class="font-bold">How to get a sample tested in India</h2>
+        <ol class="mt-2 list-decimal space-y-2 pl-5 text-ink-700">
+          <li><span class="font-semibold">Choose an accredited lab.</span> Look for a lab accredited by NABL for the test you need, and preferably notified by FSSAI. Check its certificate number on NABL's website.</li>
+          <li><span class="font-semibold">Ask for a specific test.</span> "Is it adulterated?" can't be tested. Ask for named tests: for example pesticide residues, lead, aflatoxin, Salmonella, or a named adulterant.</li>
+          <li><span class="font-semibold">Keep the sample sealed.</span> Use an unopened pack where possible, and note the batch number, barcode and where you bought it.</li>
+          <li><span class="font-semibold">Read the report against the legal limit.</span> A result is only meaningful compared with the limit for that food.</li>
+        </ol>
+        <p class="mt-3 text-sm text-ink-600">The Food Safety and Standards Act, 2006 (Section 40) also lets a buyer have food analysed by a food analyst for a fee. Ask your state food safety department how to do this.</p>
+        <div class="mt-3 flex flex-wrap gap-3 text-sm">
+          <a href="https://nabl-india.org/" rel="noopener noreferrer" target="_blank">NABL accredited laboratories</a>
+          <a href="https://www.fssai.gov.in/" rel="noopener noreferrer" target="_blank">FSSAI notified laboratories</a>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="text-lg font-bold">Labs checked by our curators</h2>
+        <form method="get" class="card card-pad mt-3 grid gap-3 sm:grid-cols-4 sm:items-end">
+          <div><label for="t-country" class="label">Country</label>
+            <select id="t-country" name="country" class="input"><option value="">Any</option>{% for code, name in countries %}<option value="{{ code }}" {% if code == country %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
+          <div><label for="t-test" class="label">Test</label>
+            <select id="t-test" name="test" class="input"><option value="">Any</option>{% for key, label in tests.items() %}<option value="{{ key }}" {% if key == test %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+          <div><label for="t-city" class="label">City or state</label><input id="t-city" name="city" value="{{ city }}" class="input"></div>
+          <button class="btn-primary" type="submit">Find labs</button>
+        </form>
+        {% if labs %}
+        <ul class="mt-3 space-y-3">
+          {% for lab in labs %}
+          <li class="card card-pad">
+            <div class="flex flex-wrap items-start justify-between gap-2">
+              <div><p class="font-semibold text-ink-950">{{ lab.name }}</p><p class="text-sm text-ink-600">{{ lab.city }}{% if lab.region %}, {{ lab.region }}{% endif %} · {{ lab.country_code|flag }}</p></div>
+              {% if lab.accepts_public_samples %}<span class="badge bg-emerald-100 text-emerald-900">Accepts samples from the public</span>{% elif lab.accepts_public_samples is sameas false %}<span class="tag">Businesses only</span>{% endif %}
+            </div>
+            <p class="mt-2 text-sm text-ink-700"><span class="font-semibold">Accreditation:</span> {{ lab.accreditation }}</p>
+            {% if lab.tests %}<p class="mt-1 text-sm text-ink-700"><span class="font-semibold">Tests:</span> {{ lab.tests|map("replace", "_", " ")|join(", ") }}</p>{% endif %}
+            {% if lab.notes %}<p class="mt-1 text-sm text-ink-600">{{ lab.notes }}</p>{% endif %}
+            <p class="mt-2 flex flex-wrap gap-3 text-sm">{% if lab.website %}<a href="{{ lab.website }}" rel="noopener noreferrer" target="_blank">Website</a>{% endif %}{% if lab.phone %}<span>{{ lab.phone }}</span>{% endif %}<a href="{{ lab.source_url }}" rel="noopener noreferrer" target="_blank">Accreditation source</a><span class="text-ink-400">checked {{ lab.verified_on|date }}</span></p>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="card card-pad mt-3 text-sm text-ink-700">
+          <p class="font-semibold text-ink-900">No checked labs match yet.</p>
+          <p class="mt-1">We only list a lab after a curator has checked its accreditation against an official source. Until then, use NABL's and FSSAI's official lists linked above.</p>
+        </div>
+        {% endif %}
+      </section>
+    </div>
+    <aside class="space-y-4">
+      <div class="card card-pad">
+        <h2 class="font-bold">Good to know</h2>
+        <ul class="mt-3 space-y-3">{% for f in facts %}{{ finding(f) }}{% endfor %}</ul>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endblock %}

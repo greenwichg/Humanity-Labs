@@ -1,16 +1,13 @@
-# Batchlight
+# Humanity Labs
 
-**Medicine safety alerts that reach the shelf and the patient.**
+**A consumer-first safety platform: check medicines and food against official safety alerts.**
 
-Every week, regulators find medicine and device batches that are contaminated, sub-potent, mislabelled, non-sterile or falsified. Their alerts are published one website at a time, often as PDFs, and mostly reach distributors rather than the pharmacies, clinics and homes holding the affected product. In low- and middle-income countries about one medical product in ten is substandard or falsified, and contaminated cough syrups killed children in several countries between 2022 and 2025.
+Regulators and scientists regularly find medicines and food that are contaminated, mislabelled, sub-standard or fake. Their findings are scattered across websites, PDFs and press releases and rarely reach the people holding the product. Humanity Labs gathers them, links every one to its source, and makes them easy to check. It has two modules:
 
-Batchlight gathers alerts from regulators into one batch-level registry, matches them against the stock lists of pharmacies, clinics, distributors and households, notifies the people holding affected batches, and records what they did about it.
+- **Medicines (Batchlight).** Batch-level medicine and device alerts from the US FDA, UK MHRA, Health Canada and the WHO. Anyone can check a batch number. Pharmacies, clinics and distributors can list their stock and be told when a regulator flags a batch they hold, then record what they did.
+- **Food Safety.** Food recalls from the US FDA and the Canadian Food Inspection Agency plus curated notices from India's FSSAI, searchable by product, brand, batch code or barcode. Plain-language summaries of what official surveys and peer-reviewed studies found in milk, spices, turmeric, oils, honey and more. Pack checks for the FSSAI licence number, the barcode and the label. A report form for suspicious products, and guidance on getting food tested at an accredited lab. See [docs/FOOD_SAFETY.md](docs/FOOD_SAFETY.md).
 
-- **Anyone** can check a batch number against every source, with no account.
-- **Pharmacies, clinics and distributors** list their stock (by hand, CSV or API) and are told when any regulator flags a batch they hold.
-- **Families** list the medicines they take and get plain-language guidance if one is recalled.
-- **Procurement teams** see each manufacturer's alert history across regulators.
-- **Everyone** can see real outcomes: time to action, units removed, and match precision.
+Humanity Labs never claims to detect adulteration. Every finding comes from a regulator, a peer-reviewed study or a credible report, and says which.
 
 ## How this product was chosen
 
@@ -22,6 +19,8 @@ This repository started with a research exercise: 16 research agents investigate
 - [docs/PRODUCT.md](docs/PRODUCT.md): vision, personas, journeys, feature priorities, differentiation, outcomes and sustainability model
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture, data model, matching algorithm, API, security and scalability
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): configuration and deployment
+- [docs/FOOD_SAFETY.md](docs/FOOD_SAFETY.md): the Food Safety module, its evidence policy and data coverage
+- [docs/research/FOOD_SAFETY_EVIDENCE.md](docs/research/FOOD_SAFETY_EVIDENCE.md): graded, fact-checked research on food safety in India
 
 ## What works today
 
@@ -36,6 +35,7 @@ This repository started with a research exercise: 16 research agents investigate
 | Matching | Batch-level and product-level matching with explained reasons, on new alerts and on new stock |
 | Closed loop | Inbox, notifications, email digests, outcome recording, reopen, audit log |
 | API | Public search and batch check; API-key access to holdings and matches; OpenAPI docs at `/api/docs` |
+| Food Safety | Food recall search by name, batch or barcode; sourced findings on 8 common foods; FSSAI number, barcode and label checks; consumer reports with a curator queue; testing guide and curated lab directory |
 | Security | Argon2id passwords, hashed sessions, tokens and API keys, CSRF protection, strict CSP, login throttling, tenant isolation |
 
 ## Run it locally
@@ -49,6 +49,7 @@ cp .env.example .env                        # edit BATCHLIGHT_DATABASE_URL if ne
 createdb batchlight
 alembic upgrade head
 python -m batchlight.cli ingest             # first refresh of every source, takes several minutes
+python -m batchlight.cli seed-food-india    # curated India food regulatory actions (safe to re-run)
 uvicorn batchlight.main:app --reload        # http://localhost:8000
 ```
 

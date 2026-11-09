@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf with context %}
+{% block title %}Testing labs{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/admin">Curator console</a></nav>
+  <div class="mt-2 flex flex-wrap items-end justify-between gap-3">
+    <div><h1 class="text-2xl font-bold">Testing lab directory</h1><p class="text-ink-600">Add a lab only after checking its accreditation on an official source, and link that source.</p></div>
+    <a href="/admin/food/labs/new" class="btn-primary">Add a lab</a>
+  </div>
+  {% if labs %}
+  <div class="card mt-4 overflow-x-auto">
+    <table class="table">
+      <thead><tr><th scope="col">Lab</th><th scope="col">Accreditation</th><th scope="col">Checked</th><th scope="col">Listed</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>{% for lab in labs %}
+        <tr class="{% if not lab.active %}text-ink-400{% endif %}"><td><span class="font-semibold">{{ lab.name }}</span><div class="text-xs">{{ lab.city }}, {{ lab.country_code }}</div></td>
+          <td class="text-sm">{{ lab.accreditation }}</td><td class="whitespace-nowrap text-sm">{{ lab.verified_on|date }}</td><td>{{ "Yes" if lab.active else "Hidden" }}</td>
+          <td class="whitespace-nowrap text-right"><a href="/admin/food/labs/{{ lab.id }}/edit" class="text-sm">Edit</a>
+            <form method="post" action="/admin/food/labs/{{ lab.id }}/toggle" class="ml-2 inline">{{ csrf() }}<button class="text-sm underline" type="submit">{{ "Hide" if lab.active else "List" }}</button></form></td></tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  {% else %}<div class="card card-pad mt-4 text-center text-ink-600">No labs yet.</div>{% endif %}
+</div>
+{% endblock %}

@@ -151,6 +151,7 @@ def regulator_transport(fail: set[str] | None = None) -> httpx.MockTransport:
     fail = fail or set()
     fda_drug = fixture_json("fda_drug_enforcement.json")
     fda_device = fixture_json("fda_device_enforcement.json")
+    fda_food = fixture_json("fda_food_enforcement.json")
     mhra_search = fixture_json("mhra_search.json")
     mhra_content = fixture_json("mhra_content_tropicamide.json")
     hc_open = fixture_json("hc_open_data.json")
@@ -164,6 +165,8 @@ def regulator_transport(fail: set[str] | None = None) -> httpx.MockTransport:
             search = params.get("search", [""])[0]
             if int(params.get("skip", ["0"])[0]) > 0 or "TO 2026" not in search.replace("+", " "):
                 return httpx.Response(404, json={"error": {"code": "NOT_FOUND"}})
+            if "/food/" in url.path:
+                return httpx.Response(200, json=fda_food)
             return httpx.Response(200, json=fda_drug if "/drug/" in url.path else fda_device)
         if url.hostname == "www.gov.uk":
             if url.path == "/api/search.json":
@@ -189,6 +192,8 @@ def regulator_transport(fail: set[str] | None = None) -> httpx.MockTransport:
                 return httpx.Response(200, json=hc_open)
             if "cyclophosphamide" in url.path:
                 return httpx.Response(200, text=fixture_text("hc_detail_cyclophosphamide.html"))
+            if "surimi" in url.path:
+                return httpx.Response(200, text=fixture_text("cfia_detail_surimi.html"))
             return httpx.Response(200, text="<html><body><p>No table</p></body></html>")
         if url.hostname == "www.who.int":
             if "full-list-of-who-medical-product-alerts" in url.path:

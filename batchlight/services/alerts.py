@@ -9,6 +9,7 @@ from datetime import date
 from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
+from ..food.verify import barcode_variants
 from ..matching import Decision, HoldingFacts, facts_for_holding, score
 from ..models import Alert, AlertLot, Source
 from ..text import lot_key, manufacturer_key, manufacturer_slug, name_tokens, strengths
@@ -40,14 +41,24 @@ def search_alerts(
     alert_type: str | None = None,
     page: int = 1,
     per_page: int = PER_PAGE,
+    category: str | None = "medicine",
+    country: str | None = None,
 ) -> Page:
+    """Search alerts by text, batch code or barcode. ``category=None`` searches every category."""
     stmt = select(Alert)
+    if category:
+        stmt = stmt.where(Alert.category == category)
     q = (q or "").strip()[:200]
     if q:
         conditions = [Alert.search.op("@@")(func.plainto_tsquery("simple", q)), Alert.title.ilike(f"%{q}%")]
         if looks_like_batch(q):
             conditions.append(Alert.id.in_(select(AlertLot.alert_id).where(AlertLot.lot_key == lot_key(q))))
+        number = re.sub(r"[\s-]", "", q)
+        if number.isdigit() and 8 <= len(number) <= 14:
+            conditions.append(Alert.product_codes.overlap(barcode_variants(number)))
         stmt = stmt.where(or_(*conditions))
+    if country:
+        stmt = stmt.where(Alert.country_code == country)
     if source:
         stmt = stmt.where(Alert.source_id == source)
     if severity:
@@ -94,7 +105,9 @@ class CheckResult:
     batch_match: bool
 
 
-def check_batch(session: Session, batch: str, product: str | None = None, manufacturer: str | None = None) -> list[CheckResult]:
+def check_batch(
+    session: Session, batch: str, product: str | None = None, manufacturer: str | None = None, category: str = "medicine"
+) -> list[CheckResult]:
     """Public batch check. With a product name, results are scored like a stock match."""
     key = lot_key(batch)
     holding = HoldingFacts(
@@ -108,14 +121,17 @@ def check_batch(session: Session, batch: str, product: str | None = None, manufa
     listed: set = set()
     if key:
         for alert in session.scalars(
-            select(Alert).join(AlertLot).where(AlertLot.lot_key == key).options(selectinload(Alert.source))
+            select(Alert)
+            .join(AlertLot)
+            .where(AlertLot.lot_key == key, Alert.category == category)
+            .options(selectinload(Alert.source))
         ):
             candidates[alert.id] = alert
             listed.add(alert.id)
     if product and holding.name_tokens:
         for alert in session.scalars(
             select(Alert)
-            .where(Alert.name_tokens.overlap(sorted(holding.name_tokens)))
+            .where(Alert.name_tokens.overlap(sorted(holding.name_tokens)), Alert.category == category)
             .order_by(Alert.published_at.desc().nulls_last())
             .limit(300)
             .options(selectinload(Alert.source))
@@ -142,13 +158,19 @@ def check_batch(session: Session, batch: str, product: str | None = None, manufa
     return results[:50]
 
 
-def sources_status(session: Session) -> list[dict]:
-    counts = dict(session.execute(select(Alert.source_id, func.count()).group_by(Alert.source_id)).all())
-    return [
-        {"source": s, "alerts": counts.get(s.id, 0)}
-        for s in session.scalars(select(Source).order_by(Source.automated.desc(), Source.name))
-        if s.enabled or counts.get(s.id)
-    ]
+def sources_status(session: Session, category: str | None = "medicine") -> list[dict]:
+    """Sources with alert counts. The shared curated source is counted per category."""
+    counts_stmt = select(Alert.source_id, func.count()).group_by(Alert.source_id)
+    if category:
+        counts_stmt = counts_stmt.where(Alert.category == category)
+    counts = dict(session.execute(counts_stmt).all())
+    rows = []
+    for s in session.scalars(select(Source).order_by(Source.automated.desc(), Source.name)):
+        if category and s.automated and s.category != category:
+            continue
+        if s.enabled or counts.get(s.id):
+            rows.append({"source": s, "alerts": counts.get(s.id, 0)})
+    return rows
 
 
 def manufacturer_index(session: Session, q: str = "", limit: int = 100) -> list[dict]:
@@ -161,7 +183,7 @@ def manufacturer_index(session: Session, q: str = "", limit: int = 100) -> list[
             func.sum(case((Alert.severity == "critical", 1), else_=0)).label("critical"),
             func.max(Alert.published_at).label("latest"),
         )
-        .where(Alert.manufacturer_key.is_not(None), Alert.manufacturer_key != "")
+        .where(Alert.manufacturer_key.is_not(None), Alert.manufacturer_key != "", Alert.category == "medicine")
         .group_by(Alert.manufacturer_key)
     )
     if q:
@@ -176,7 +198,7 @@ def manufacturer_alerts(session: Session, slug: str) -> tuple[str | None, list[A
     key = slug.replace("-", " ")
     alerts = session.scalars(
         select(Alert)
-        .where(func.regexp_replace(Alert.manufacturer_key, "[^a-z0-9]+", " ", "g") == key)
+        .where(func.regexp_replace(Alert.manufacturer_key, "[^a-z0-9]+", " ", "g") == key, Alert.category == "medicine")
         .order_by(Alert.published_at.desc().nulls_last())
         .limit(500)
         .options(selectinload(Alert.source))

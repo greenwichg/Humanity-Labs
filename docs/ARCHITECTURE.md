@@ -59,6 +59,16 @@ flowchart LR
 | Tests | pytest against a real PostgreSQL, Playwright for end-to-end | Tests exercise real SQL, not mocks. |
 | Packaging | Docker, Docker Compose, GitHub Actions | Runs on any container host. |
 
+## Modules and categories
+
+Every source and alert has a `category`: `medicine` (Batchlight) or `food` (the Food Safety module). Both share the ingestion pipeline, batch parsing, search and curation. The category keeps them apart:
+
+- Only `medicine` alerts are matched against workspace stock, in both directions.
+- Medicine pages, the manufacturer index, impact metrics and the API default to `medicine`; food pages always filter to `food`.
+- `/alerts/{id}` redirects food alerts to `/food/recalls/{id}`, and the reverse.
+
+Food-only tables: `food_reports` (consumer reports, reviewed by curators, never published; stores a keyed hash of the IP address for rate limiting, not the address) and `testing_labs` (labs added by curators with the official source they checked). The food knowledge base is versioned code in `batchlight/food/knowledge.py`, not database rows, so every change is reviewed.
+
 ## Data model
 
 ```mermaid

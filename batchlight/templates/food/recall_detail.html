@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "macros.html" import severity with context %}
+{% block title %}{{ alert.title[:80] }}{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/food/recalls">Food recalls</a></nav>
+  <div class="mt-3 flex flex-wrap items-center gap-2">{{ severity(alert.severity) }}{% if alert.classification %}<span class="tag">{{ alert.classification }}</span>{% endif %}</div>
+  <h1 class="mt-3 text-2xl font-bold sm:text-3xl">{{ alert.title }}</h1>
+  <p class="mt-2 text-ink-600">{{ alert.country_code|flag }} {{ alert.regulator }}{% if country %} ({{ country }}){% endif %} · {{ alert.published_at|date }}</p>
+
+  <div class="mt-6 grid gap-6 lg:grid-cols-3">
+    <div class="space-y-6 lg:col-span-2">
+      <section class="rounded-2xl bg-red-50 p-5 text-red-950 ring-1 ring-red-200">
+        <h2 class="font-bold">If you have this product</h2>
+        <ol class="mt-2 list-decimal space-y-1 pl-5">
+          <li>Compare the brand, pack, barcode and codes on your pack with the details on this page and in the notice.</li>
+          <li>If they match, don't eat or serve it. Return it to the shop or throw it away, as the notice says.</li>
+          <li>If someone feels unwell after eating it, contact a doctor.</li>
+        </ol>
+      </section>
+      {% if alert.reason %}<section class="card card-pad"><h2 class="font-bold">Why it was recalled</h2><p class="mt-2 whitespace-pre-line text-ink-700">{{ alert.reason }}</p></section>{% endif %}
+      <section class="card card-pad">
+        <h2 class="font-bold">Products and codes</h2>
+        {% if alert.product_names %}<p class="mt-2 text-ink-700">{{ alert.product_names|join(", ") }}</p>{% endif %}
+        {% if alert.product_codes %}<p class="mt-3 text-sm text-ink-600">Barcode{{ "s" if alert.product_codes|length > 1 }}: <span class="font-mono">{{ alert.product_codes|join(", ") }}</span></p>{% endif %}
+        {% if lots %}
+        <p class="mt-3 text-sm text-ink-600">Batch, lot or date codes listed:</p>
+        <p class="mt-1 font-mono text-sm text-ink-900">{% for lot, expiry in lots %}{{ lot }}{% if expiry %} (exp. {{ expiry }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}{% if alert.lot_count > lots|length %} … and {{ alert.lot_count - lots|length }} more{% endif %}</p>
+        {% elif alert.all_lots %}<p class="mt-3 text-sm text-ink-700">All codes of this product are affected.</p>
+        {% else %}<p class="mt-3 text-sm text-ink-600">No batch codes were published here. Check the original notice.</p>{% endif %}
+      </section>
+      {% if alert.product_description %}<section class="card card-pad"><h2 class="font-bold">Details from the regulator</h2><p class="mt-2 whitespace-pre-line text-sm text-ink-700">{{ alert.product_description[:2500] }}{% if alert.product_description|length > 2500 %}…{% endif %}</p></section>{% endif %}
+    </div>
+    <aside class="space-y-4">
+      <div class="card card-pad text-sm">
+        <dl class="space-y-3">
+          {% if alert.manufacturer %}<div><dt class="font-semibold text-ink-900">Company</dt><dd class="mt-0.5 text-ink-700">{{ alert.manufacturer }}</dd></div>{% endif %}
+          <div><dt class="font-semibold text-ink-900">Source</dt><dd class="mt-0.5 text-ink-700">{{ alert.source.name }}</dd></div>
+        </dl>
+        <a href="{{ alert.source_url }}" class="btn-primary mt-4 w-full" rel="noopener noreferrer" target="_blank">Read the original notice</a>
+      </div>
+      <a href="/food/report?product={{ alert.product_names[0]|default(alert.title)|urlencode }}" class="btn-secondary w-full">Report a problem with this product</a>
+    </aside>
+  </div>
+</div>
+{% endblock %}

@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from ..models import ACTION_OUTCOMES, Alert, Holding, IngestionRun, Match, Organization, Source
+from ..models import ACTION_OUTCOMES, Alert, FoodReport, Holding, IngestionRun, Match, Organization, Source, TestingLab
 
 
 def _median(values: list[float]) -> float | None:
@@ -62,13 +62,17 @@ def match_metrics(session: Session, org_id: uuid.UUID | None = None) -> dict:
     }
 
 
-def alert_metrics(session: Session) -> dict:
-    total = session.scalar(select(func.count()).select_from(Alert)) or 0
+def alert_metrics(session: Session, category: str = "medicine") -> dict:
+    in_category = Alert.category == category
+    total = session.scalar(select(func.count()).select_from(Alert).where(in_category)) or 0
     with_batches = (
-        session.scalar(select(func.count()).select_from(Alert).where(or_(Alert.all_lots.is_(True), Alert.lot_count > 0))) or 0
+        session.scalar(
+            select(func.count()).select_from(Alert).where(in_category, or_(Alert.all_lots.is_(True), Alert.lot_count > 0))
+        )
+        or 0
     )
-    batches = session.scalar(select(func.coalesce(func.sum(Alert.lot_count), 0))) or 0
-    regulators = session.scalar(select(func.count(func.distinct(Alert.regulator)))) or 0
+    batches = session.scalar(select(func.coalesce(func.sum(Alert.lot_count), 0)).where(in_category)) or 0
+    regulators = session.scalar(select(func.count(func.distinct(Alert.regulator))).where(in_category)) or 0
     # Latency: alerts that arrived through incremental runs, i.e. after each source's first successful run.
     first_success = (
         select(IngestionRun.source_id, func.min(IngestionRun.finished_at).label("first"))
@@ -79,16 +83,17 @@ def alert_metrics(session: Session) -> dict:
     rows = session.execute(
         select(Alert.created_at, Alert.published_at)
         .join(first_success, first_success.c.source_id == Alert.source_id)
-        .where(Alert.published_at.is_not(None), Alert.created_at > first_success.c.first + timedelta(hours=1))
+        .where(in_category, Alert.published_at.is_not(None), Alert.created_at > first_success.c.first + timedelta(hours=1))
     ).all()
     lags = [max(0.0, (r.created_at.date() - r.published_at).days) for r in rows]
     by_source = session.execute(
         select(Source.name, func.count(Alert.id))
         .join(Alert, Alert.source_id == Source.id)
+        .where(in_category)
         .group_by(Source.name)
         .order_by(func.count(Alert.id).desc())
     ).all()
-    by_severity = dict(session.execute(select(Alert.severity, func.count()).group_by(Alert.severity)).all())
+    by_severity = dict(session.execute(select(Alert.severity, func.count()).where(in_category).group_by(Alert.severity)).all())
     return {
         "alerts_total": total,
         "alerts_with_batches": with_batches,
@@ -99,6 +104,17 @@ def alert_metrics(session: Session) -> dict:
         "latency_sample": len(lags),
         "by_source": by_source,
         "by_severity": by_severity,
+    }
+
+
+def food_metrics(session: Session) -> dict:
+    by_status = dict(session.execute(select(FoodReport.status, func.count()).group_by(FoodReport.status)).all())
+    return {
+        "food_alerts": session.scalar(select(func.count()).select_from(Alert).where(Alert.category == "food")) or 0,
+        "reports_total": sum(by_status.values()),
+        "reports_reviewed": sum(n for status, n in by_status.items() if status != "new"),
+        "reports_forwarded": by_status.get("forwarded", 0),
+        "labs": session.scalar(select(func.count()).select_from(TestingLab).where(TestingLab.active.is_(True))) or 0,
     }
 
 

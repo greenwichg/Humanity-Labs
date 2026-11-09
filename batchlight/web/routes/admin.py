@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from ...db import session_factory
 from ...ingest import REGISTRY, ensure_sources, run_source, upsert_alert
 from ...matching import match_alerts, rescore_open_matches
-from ...models import ALERT_TYPES, SEVERITIES, Alert, IngestionRun, Source
+from ...models import ALERT_TYPES, SEVERITIES, Alert, FoodReport, IngestionRun, Source
 from ...services import audit
 from ...services.curation import CURATED_CSV_COLUMNS, CuratedAlertInput, parse_curated_csv
 from ...services.notifications import notify_new_matches
@@ -40,7 +40,12 @@ def index(request: Request, db: DB, auth: CuratorAuth):
     counts = dict(db.execute(select(Alert.source_id, func.count()).group_by(Alert.source_id)).all())
     runs = db.scalars(select(IngestionRun).order_by(IngestionRun.started_at.desc()).limit(25)).all()
     running = {r.source_id for r in runs if r.status == "running"}
-    return render(request, "admin/index.html", {"sources": sources, "counts": counts, "runs": runs, "running": running})
+    new_reports = db.scalar(select(func.count()).select_from(FoodReport).where(FoodReport.status == "new")) or 0
+    return render(
+        request,
+        "admin/index.html",
+        {"sources": sources, "counts": counts, "runs": runs, "running": running, "new_reports": new_reports},
+    )
 
 
 @router.post("/sources/{source_id}/run", dependencies=[CSRF])
@@ -128,7 +133,7 @@ def import_form(request: Request, auth: CuratorAuth):
 @router.get("/alerts/template.csv")
 def import_template(auth: CuratorAuth):
     example = (
-        "CDSCO (India),IN,Not of standard quality: Example Paracetamol Syrup,substandard,high,Example Paracetamol Syrup,"
+        "medicine,CDSCO (India),IN,Not of standard quality: Example Paracetamol Syrup,substandard,high,Example Paracetamol Syrup,"
         'paracetamol,Example Labs Pvt Ltd,,"EPS2401, 06/2026; EPS2402, 07/2026",false,Failed assay test,2026-10-15,'
         "https://cdsco.gov.in/opencms/opencms/en/Notifications/Alerts/,\n"
     )

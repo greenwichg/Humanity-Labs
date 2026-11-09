@@ -14,10 +14,12 @@ from urllib.parse import quote
 import httpx
 
 from ..config import get_settings
+from ..food.verify import extract_barcodes
 from ..lots import extract_lots
 from ..text import extract_product_codes, truncate
 from .base import AlertRecord, SourceAdapter, get_with_retry, parse_date, register
 
+NAMES = {"drug": "drug", "device": "medical device", "food": "food"}
 SEVERITY = {"Class I": "critical", "Class II": "high", "Class III": "moderate"}
 PAGE_SIZE = 1000
 MAX_SKIP = 25000
@@ -73,7 +75,11 @@ def map_record(kind: str, item: dict) -> AlertRecord:
         product_names=names,
         active_ingredients=ingredients,
         manufacturer=item.get("recalling_firm"),
-        product_codes=list(openfda.get("product_ndc") or []) + extract_product_codes(description, item.get("code_info")),
+        product_codes=(
+            extract_barcodes(description, item.get("code_info"), item.get("more_code_info"))
+            if kind == "food"
+            else list(openfda.get("product_ndc") or []) + extract_product_codes(description, item.get("code_info"))
+        ),
         reason=reason,
         distribution=item.get("distribution_pattern"),
         lots=lots.lots,
@@ -100,10 +106,11 @@ def map_record(kind: str, item: dict) -> AlertRecord:
 
 class OpenFDAEnforcement(SourceAdapter):
     def __init__(self, kind: str) -> None:
-        assert kind in ("drug", "device")
+        assert kind in ("drug", "device", "food")
         self.kind = kind
         self.id = f"us-fda-{kind}"
-        self.name = f"US FDA {'drug' if kind == 'drug' else 'medical device'} recalls"
+        self.name = f"US FDA {NAMES[kind]} recalls"
+        self.category = "food" if kind == "food" else "medicine"
         self.regulator = "US Food and Drug Administration"
         self.country_code = "US"
         self.homepage_url = "https://www.fda.gov/safety/recalls-market-withdrawals-safety-alerts"
@@ -145,3 +152,4 @@ class OpenFDAEnforcement(SourceAdapter):
 
 register(OpenFDAEnforcement("drug"))
 register(OpenFDAEnforcement("device"))
+register(OpenFDAEnforcement("food"))

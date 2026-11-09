@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf, field, textarea, select with context %}
+{% block title %}{{ "Edit " ~ lab.name if lab else "Add a lab" }}{% endblock %}
+{% block body %}
+<div class="container-page max-w-3xl py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/admin/food/labs">Testing labs</a></nav>
+  <h1 class="mt-2 text-2xl font-bold">{{ "Edit " ~ lab.name if lab else "Add a lab" }}</h1>
+  <form method="post" action="{{ '/admin/food/labs/' ~ lab.id if lab else '/admin/food/labs' }}" class="card card-pad mt-6 space-y-4" novalidate>
+    {{ csrf() }}
+    {% if errors %}<div role="alert" class="rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">Please fix the highlighted fields.</div>{% endif %}
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div class="sm:col-span-2">{{ field("name", "Laboratory name", form, errors, required=True) }}</div>
+      {{ field("city", "City", form, errors, required=True) }}
+      {{ field("region", "State or region", form, errors) }}
+      {{ select("country_code", "Country", countries, form.get("country_code", "IN"), errors) }}
+      {{ field("accreditation", "Accreditation", form, errors, required=True, placeholder="e.g. NABL TC-1234; FSSAI notified") }}
+      <div class="sm:col-span-2">{{ field("source_url", "Where you checked the accreditation", form, errors, type="url", required=True, placeholder="https://", hint="Link to the NABL certificate, FSSAI notification or equivalent.") }}</div>
+      {{ field("verified_on", "Checked on", form, errors, type="date", required=True) }}
+      <div><label for="f-aps" class="label">Accepts samples from the public?</label>
+        <select id="f-aps" name="accepts_public_samples" class="input">{% for value, label in [("", "Not known"), ("yes", "Yes"), ("no", "No, businesses only")] %}<option value="{{ value }}" {% if form.get("accepts_public_samples", "") == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+      {{ field("website", "Website", form, errors, type="url") }}
+      {{ field("phone", "Phone", form, errors) }}
+    </div>
+    <fieldset>
+      <legend class="label">Tests offered</legend>
+      <div class="grid gap-2 sm:grid-cols-2">{% for key, label in tests.items() %}
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="tests" value="{{ key }}" {% if key in form.get("tests", []) %}checked{% endif %}> {{ label }}</label>{% endfor %}</div>
+      {% if errors.get("tests") %}<p class="field-error">{{ errors.tests }}</p>{% endif %}
+    </fieldset>
+    {{ textarea("notes", "Notes for the public", form, errors, rows=3) }}
+    <button class="btn-primary" type="submit">Save lab</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf, field, textarea, select with context %}
+{% block title %}Report a food problem{% endblock %}
+{% block body %}
+<div class="container-page max-w-3xl py-8">
+  <h1 class="text-2xl font-bold sm:text-3xl">Report a food problem</h1>
+  <p class="mt-2 text-ink-600">Tell us about food that seemed wrong. A curator reviews every report. We never publish individual reports or name a product as unsafe because of a report.</p>
+
+  <div class="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-950 ring-1 ring-red-200">
+    <p class="font-semibold">If someone is ill</p>
+    <p class="mt-1">Get medical help first. Keep the food, its pack and the receipt if you can, in case the doctor or food safety officer needs them.</p>
+  </div>
+
+  {% if errors.get("form") %}<div role="alert" class="mt-4 rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">{{ errors.form }}</div>
+  {% elif errors %}<div role="alert" class="mt-4 rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">Please fix the highlighted fields.</div>{% endif %}
+
+  <form method="post" action="/food/report" class="card card-pad mt-6 space-y-5" novalidate>
+    {{ csrf() }}
+    <div class="hidden" aria-hidden="true"><label for="f-website">Leave this empty</label><input id="f-website" name="website" tabindex="-1" autocomplete="off"></div>
+    <fieldset>
+      <legend class="label">What went wrong?</legend>
+      <div class="grid gap-2 sm:grid-cols-2">
+        {% for key, label in problems.items() %}
+        <label class="flex items-start gap-2 rounded-lg border border-ink-100 px-3 py-2 text-sm hover:bg-ink-50">
+          <input type="radio" name="problem" value="{{ key }}" class="mt-0.5" {% if form.get("problem") == key %}checked{% endif %} required> <span>{{ label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      {% if errors.get("problem") %}<p class="field-error">{{ errors.problem }}</p>{% endif %}
+    </fieldset>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div class="sm:col-span-2">{{ field("product_name", "Product name", form, errors, required=True, placeholder="As printed on the pack") }}</div>
+      {{ field("brand", "Brand", form, errors) }}
+      {{ field("batch", "Batch or lot number", form, errors, attrs='autocomplete="off" spellcheck="false"') }}
+      {{ field("barcode", "Barcode number", form, errors, attrs='inputmode="numeric"') }}
+      {{ field("fssai_licence", "FSSAI licence number", form, errors, attrs='inputmode="numeric"', hint="14 digits next to the FSSAI logo.") }}
+      {{ field("purchased_at", "Where you bought it", form, errors, placeholder="Shop, market or website") }}
+      {{ field("city", "Town or city", form, errors) }}
+      {{ select("country_code", "Country", countries, form.get("country_code", "IN"), errors) }}
+      <div class="sm:col-span-2">{{ textarea("description", "What happened?", form, errors, required=True, rows=5, placeholder="What did you notice, when, and what did you do with the food?") }}</div>
+      <div class="sm:col-span-2">{{ field("contact_email", "Email, if you'd like a reply", form, errors, type="email", hint="Used only to follow up on this report.") }}</div>
+    </div>
+    <button class="btn-primary" type="submit">Send report</button>
+    <p class="text-xs text-ink-500">We keep a one-way code made from your connection's address to limit spam, not the address itself.</p>
+  </form>
+
+  <section class="card card-pad mt-6">
+    <h2 class="font-bold">Make an official complaint too</h2>
+    <p class="mt-1 text-sm text-ink-700">Only regulators can investigate, test samples and take action. In India:</p>
+    <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-ink-700">
+      <li>Use FSSAI's <span class="font-semibold">Food Safety Connect</span> app, or the complaint options on <a href="https://foscos.fssai.gov.in/" rel="noopener noreferrer" target="_blank">FSSAI's FoSCoS website</a>.</li>
+      <li>Contact your state's Commissioner of Food Safety or local food safety officer.</li>
+      <li>For a consumer dispute with a seller, call the National Consumer Helpline on 1915 or use <a href="https://consumerhelpline.gov.in/" rel="noopener noreferrer" target="_blank">consumerhelpline.gov.in</a>.</li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

@@ -10,7 +10,10 @@
     {{ csrf() }}
     {% if errors %}<div role="alert" class="rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">Please fix the highlighted fields.</div>{% endif %}
     <div class="grid gap-4 sm:grid-cols-2">
-      {{ field("regulator", "Regulator", form, errors, required=True, placeholder="e.g. CDSCO (India)") }}
+      <div class="sm:col-span-2"><label for="f-category" class="label">Category</label>
+        <select id="f-category" name="category" class="input">{% for value, label in [("medicine", "Medicine or medical device"), ("food", "Food")] %}<option value="{{ value }}" {% if form.get("category", "medicine") == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        <p class="hint">Food alerts appear in the Food Safety module and are never matched against pharmacy stock.</p></div>
+      {{ field("regulator", "Regulator", form, errors, required=True, placeholder="e.g. CDSCO (India) or FSSAI (India)") }}
       {{ select("country_code", "Regulator's country", countries, form.get("country_code", ""), errors, required=False) }}
       <div class="sm:col-span-2">{{ field("title", "Title", form, errors, required=True, placeholder="e.g. Not of standard quality: Paracetamol Oral Suspension") }}</div>
       {{ select("alert_type", "Type", TYPE_LABELS.items()|list, form.get("alert_type"), errors) }}

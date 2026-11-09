@@ -86,7 +86,8 @@ def company_from_page(soup: BeautifulSoup) -> str | None:
     if block is None:
         return None
     for line in block.get_text("\n").splitlines():
-        line = " ".join(line.split()).strip(" ,")
+        line = re.sub(r"^(recalling firm|company|distributor|importer)\s*:\s*", "", " ".join(line.split()), flags=re.I)
+        line = line.strip(" ,")
         if line:
             return line[:200]
     return None
@@ -138,17 +139,30 @@ class HealthCanadaRecalls(SourceAdapter):
         )
         self._enriched = {external_id: updated or "" for external_id, updated in rows}
 
+    def is_relevant(self, item: dict) -> bool:
+        return item.get("Organization") != "CFIA" and is_health_record(item)
+
+    def map(self, item: dict) -> AlertRecord:
+        return map_record(item)
+
+    def enrich(self, record: AlertRecord, html: str) -> AlertRecord:
+        return enrich_from_page(record, html)
+
+    @property
+    def detail_limit(self) -> int:
+        return get_settings().health_canada_detail_limit
+
     def fetch(self, client: httpx.Client, since: date) -> Iterator[AlertRecord]:
         settings = get_settings()
         items = get_with_retry(client, OPEN_DATA_URL).json()
         records = [
-            item for item in items if is_health_record(item) and (parse_date(item.get("Last updated")) or date.min) >= since
+            item for item in items if self.is_relevant(item) and (parse_date(item.get("Last updated")) or date.min) >= since
         ]
         records.sort(key=lambda item: item.get("Last updated") or "", reverse=True)
         detail_cutoff = date.today() - timedelta(days=settings.health_canada_detail_days)
         details_fetched = 0
         for item in records:
-            record = map_record(item)
+            record = self.map(item)
             already = self._enriched.get(str(item["NID"]))
             # New alerts, and recent alerts updated since their page was read. Older alerts without details are
             # filled in over successive runs, newest first, within the per-run limit.
@@ -156,11 +170,11 @@ class HealthCanadaRecalls(SourceAdapter):
                 already is None
                 or (already != (item.get("Last updated") or "") and (record.published_at or date.min) >= detail_cutoff)
             )
-            if wants_detail and details_fetched < settings.health_canada_detail_limit:
+            if wants_detail and details_fetched < self.detail_limit:
                 details_fetched += 1
                 response = get_with_retry(client, item["URL"], allow_404=True)
                 if response is not None:
-                    record = enrich_from_page(record, response.text)
+                    record = self.enrich(record, response.text)
             yield record
 
 

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf with context %}
+{% block title %}Report {{ report.reference }}{% endblock %}
+{% block body %}
+<div class="container-page max-w-4xl py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/admin/food/reports">Food reports</a></nav>
+  <h1 class="mt-2 text-2xl font-bold"><span class="font-mono">{{ report.reference }}</span> · {{ report.product_name }}</h1>
+  <p class="text-ink-600">{{ problems[report.problem] }} · received {{ report.created_at|datetime }}</p>
+  <div class="mt-6 grid gap-6 md:grid-cols-3">
+    <section class="card card-pad md:col-span-2">
+      <dl class="grid gap-3 text-sm sm:grid-cols-2">
+        {% for label, value in [("Brand", report.brand), ("Batch", report.batch), ("Barcode", report.barcode), ("FSSAI licence", report.fssai_licence), ("Bought at", report.purchased_at), ("City", report.city), ("Country", report.country_code), ("Contact", report.contact_email)] %}
+        <div><dt class="font-semibold text-ink-900">{{ label }}</dt><dd class="mt-0.5 {{ 'font-mono' if label in ('Batch', 'Barcode', 'FSSAI licence') }} text-ink-700">{{ value or "—" }}</dd></div>
+        {% endfor %}
+      </dl>
+      <h2 class="mt-5 font-semibold">What happened</h2>
+      <p class="mt-1 whitespace-pre-line text-ink-800">{{ report.description }}</p>
+      <div class="mt-5 flex flex-wrap gap-3 text-sm">
+        <a href="/food/recalls?q={{ (report.barcode or report.batch or report.product_name)|urlencode }}">Search recalls</a>
+        {% if report.fssai_licence %}<a href="/food/verify?licence={{ report.fssai_licence }}">Check licence format</a>{% endif %}
+        <span class="text-ink-500">{{ same_product }} other report{{ "s" if same_product != 1 }} for this product name</span>
+      </div>
+    </section>
+    <form method="post" action="/admin/food/reports/{{ report.id }}" class="card card-pad space-y-3">
+      {{ csrf() }}
+      <div><label for="st" class="label">Status</label>
+        <select id="st" name="status" class="input">{% for s in statuses %}<option value="{{ s }}" {% if s == report.status %}selected{% endif %}>{{ s|title }}</option>{% endfor %}</select></div>
+      <div><label for="cn" class="label">Curator note</label><textarea id="cn" name="curator_note" rows="5" class="input" placeholder="e.g. Forwarded to the state food safety commissioner on…">{{ report.curator_note or "" }}</textarea></div>
+      <button class="btn-primary w-full" type="submit">Save</button>
+      {% if report.reviewed_at %}<p class="text-xs text-ink-500">Last reviewed {{ report.reviewed_at|datetime }}</p>{% endif %}
+    </form>
+  </div>
+</div>
+{% endblock %}

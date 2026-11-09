@@ -11,7 +11,7 @@ Batchlight is two processes from one container image, plus PostgreSQL:
 ## Requirements
 
 - PostgreSQL 14 or newer with the `citext` and `pgcrypto` extensions available (the first migration creates them).
-- Outbound HTTPS from the worker to: `api.fda.gov`, `www.gov.uk`, `recalls-rappels.canada.ca`, `www.who.int`.
+- Outbound HTTPS from the worker to: `api.fda.gov`, `www.gov.uk`, `recalls-rappels.canada.ca`, `www.who.int`. The food sources use the same hosts.
 - An SMTP service for email (any provider: Amazon SES, Postmark, Mailgun, your own relay).
 - HTTPS termination in front of the web process (a load balancer or reverse proxy).
 
@@ -32,6 +32,7 @@ All settings are environment variables prefixed `BATCHLIGHT_`. See `.env.example
 | `BATCHLIGHT_OPENFDA_API_KEY` | Recommended; free from open.fda.gov, raises rate limits |
 | `BATCHLIGHT_INGEST_INTERVAL_MINUTES` | `60` is a good default |
 | `BATCHLIGHT_INGEST_SINCE` | How far back the first refresh reaches, default `2024-01-01` |
+| `BATCHLIGHT_SECRET_KEY` | A long random value; keys the hash of reporters' IP addresses. If unset, a per-process value is used and rate limits reset on restart |
 
 Keep secrets (database password, SMTP password, API keys) in your platform's secret store, not in files.
 
@@ -71,8 +72,9 @@ Run `uvicorn batchlight.main:app --host 127.0.0.1 --port 8000 --workers 2 --prox
 
 1. Sign up through the web UI to create your account.
 2. Make yourself a curator: `batchlight-entrypoint python -m batchlight.cli make-curator you@example.org`
-3. Open **Curator console** and press **Run now** on each source, or wait for the worker's first pass. The first FDA drug and device refresh takes several minutes.
-4. Check `/sources` shows recent refresh times for every source.
+3. Open **Curator console** and press **Run now** on each source, or wait for the worker's first pass. The first FDA drug, device and food refresh takes several minutes.
+4. Load the curated India food actions: `batchlight-entrypoint python -m batchlight.cli seed-food-india`. It is safe to re-run.
+5. Check `/sources` shows recent refresh times for every source.
 
 ## Operations
 

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Food reports{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/admin">Curator console</a></nav>
+  <h1 class="mt-2 text-2xl font-bold">Consumer food reports</h1>
+  <p class="text-ink-600">Unverified reports from the public. They are never published. Check them against recalls and official findings, and forward credible ones to the authority.</p>
+  <nav class="mt-4 flex flex-wrap gap-2" aria-label="Filter by status">
+    {% for key in statuses|list + ["all"] %}
+    <a href="?status={{ key }}" class="btn-sm {{ 'btn-primary' if key == status else 'btn-secondary' }}">{{ key|title }}{% if key != "all" %} ({{ counts.get(key, 0) }}){% endif %}</a>
+    {% endfor %}
+  </nav>
+  {% if reports %}
+  <div class="card mt-4 overflow-x-auto">
+    <table class="table">
+      <thead><tr><th scope="col">Reference</th><th scope="col">Product</th><th scope="col">Problem</th><th scope="col">Place</th><th scope="col">Received</th><th scope="col">Status</th></tr></thead>
+      <tbody>{% for r in reports %}
+        <tr><td><a href="/admin/food/reports/{{ r.id }}" class="font-mono font-semibold">{{ r.reference }}</a></td>
+          <td>{{ r.product_name }}{% if r.brand %}<div class="text-xs text-ink-500">{{ r.brand }}</div>{% endif %}</td>
+          <td class="text-sm">{{ problems[r.problem] }}</td>
+          <td class="text-sm">{{ r.city or "—" }} {{ r.country_code|flag }}</td>
+          <td class="whitespace-nowrap text-sm">{{ r.created_at|ago }}</td>
+          <td><span class="tag">{{ r.status|title }}</span></td></tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  {% else %}<div class="card card-pad mt-4 text-center text-ink-600">No reports with this status.</div>{% endif %}
+</div>
+{% endblock %}

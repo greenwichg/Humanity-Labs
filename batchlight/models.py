@@ -32,6 +32,10 @@ MATCH_LEVELS = ("batch", "product")
 MATCH_STATUSES = ("open", "resolved")
 OUTCOMES = ("quarantined", "returned", "destroyed", "patients_notified", "not_in_stock", "false_match", "other")
 ACTION_OUTCOMES = ("quarantined", "returned", "destroyed", "patients_notified")
+CATEGORIES = ("medicine", "food")
+REPORT_PROBLEMS = ("looks_wrong", "made_ill", "foreign_object", "label_problem", "suspected_fake", "expired_or_tampered", "other")
+REPORT_STATUSES = ("new", "reviewed", "forwarded", "dismissed")
+LAB_TESTS = ("pesticides", "microbiology", "heavy_metals", "mycotoxins", "adulterants", "allergens", "nutrition", "water")
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -156,6 +160,7 @@ class Source(Base):
     regulator: Mapped[str] = mapped_column(String(100), nullable=False)
     country_code: Mapped[str | None] = mapped_column(String(2))  # None for WHO / international
     homepage_url: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(20), nullable=False, default="medicine", server_default="medicine")
     automated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -185,6 +190,8 @@ class Alert(Base):
         UniqueConstraint("source_id", "external_id", name="uq_alert_source_external"),
         CheckConstraint(_in("severity", SEVERITIES), name="severity_valid"),
         CheckConstraint(_in("alert_type", ALERT_TYPES), name="alert_type_valid"),
+        CheckConstraint(_in("category", CATEGORIES), name="category_valid"),
+        Index("ix_alerts_category_published", "category", "published_at"),
         Index("ix_alerts_name_tokens", "name_tokens", postgresql_using="gin"),
         Index("ix_alerts_product_codes", "product_codes", postgresql_using="gin"),
         Index("ix_alerts_search", "search", postgresql_using="gin"),
@@ -197,6 +204,7 @@ class Alert(Base):
     external_id: Mapped[str] = mapped_column(String(300), nullable=False)
     regulator: Mapped[str] = mapped_column(String(100), nullable=False)
     country_code: Mapped[str | None] = mapped_column(String(2))
+    category: Mapped[str] = mapped_column(String(20), nullable=False, default="medicine", server_default="medicine")
     alert_type: Mapped[str] = mapped_column(String(20), nullable=False)
     severity: Mapped[str] = mapped_column(String(10), nullable=False)
     classification: Mapped[str | None] = mapped_column(String(100))
@@ -350,3 +358,61 @@ class AuditEvent(Base):
     ip: Mapped[str | None] = mapped_column(String(64))
     data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     created_at: Mapped[datetime] = created_at()
+
+
+class FoodReport(Base):
+    """A consumer's report of a suspicious food product. Unverified: never published as fact."""
+
+    __tablename__ = "food_reports"
+    __table_args__ = (
+        CheckConstraint(_in("problem", REPORT_PROBLEMS), name="problem_valid"),
+        CheckConstraint(_in("status", REPORT_STATUSES), name="status_valid"),
+        Index("ix_food_reports_status_created", "status", "created_at"),
+        Index("ix_food_reports_ip_created", "ip_hash", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    reference: Mapped[str] = mapped_column(String(16), nullable=False, unique=True)
+    problem: Mapped[str] = mapped_column(String(30), nullable=False)
+    product_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    brand: Mapped[str | None] = mapped_column(String(200))
+    batch: Mapped[str | None] = mapped_column(String(100))
+    barcode: Mapped[str | None] = mapped_column(String(20))
+    fssai_licence: Mapped[str | None] = mapped_column(String(20))
+    purchased_at: Mapped[str | None] = mapped_column(String(200))  # shop or website, free text
+    city: Mapped[str | None] = mapped_column(String(100))
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    contact_email: Mapped[str | None] = mapped_column(CITEXT)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    ip_hash: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="new", server_default="new")
+    curator_note: Mapped[str | None] = mapped_column(Text)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = created_at()
+
+
+class TestingLab(Base):
+    """A food-testing laboratory, added by a curator from an official accreditation or notification source."""
+
+    __tablename__ = "testing_labs"
+    __table_args__ = (Index("ix_testing_labs_country_active", "country_code", "active"),)
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    city: Mapped[str] = mapped_column(String(100), nullable=False)
+    region: Mapped[str | None] = mapped_column(String(100))
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    accreditation: Mapped[str] = mapped_column(String(200), nullable=False)  # e.g. "NABL TC-1234; FSSAI notified"
+    tests: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list, server_default="{}")
+    accepts_public_samples: Mapped[bool | None] = mapped_column(Boolean)
+    website: Mapped[str | None] = mapped_column(Text)
+    phone: Mapped[str | None] = mapped_column(String(50))
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)  # where the accreditation was checked
+    verified_on: Mapped[date] = mapped_column(Date, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = created_at()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

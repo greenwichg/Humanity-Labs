@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}What tests have found in food{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <h1 class="text-2xl font-bold sm:text-3xl">What tests have found in everyday food</h1>
+  <p class="mt-2 max-w-3xl text-ink-600">Summaries of what regulators, peer-reviewed studies and credible reports found when food was tested in India. Each finding shows where it comes from. A finding about samples is not a finding about the pack in your kitchen.</p>
+  <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    {% for topic in topics %}
+    <a href="/food/reported/{{ topic.slug }}" class="card card-pad block no-underline hover:bg-ink-50">
+      <p class="text-lg font-bold text-ink-950">{{ topic.name }}</p>
+      <p class="text-xs text-ink-500">{{ topic.also_called }}</p>
+      <p class="mt-2 text-sm text-ink-700">{{ topic.summary }}</p>
+      <p class="mt-3 text-xs text-ink-500">{{ topic.findings|length }} sourced finding{{ "s" if topic.findings|length != 1 }}</p>
+    </a>
+    {% endfor %}
+  </div>
+  <section class="mt-8 rounded-2xl bg-beam-50 p-5 text-ink-800 ring-1 ring-beam-200">
+    <h2 class="font-bold">Can I test food at home?</h2>
+    <p class="mt-1">{{ home_testing }}</p>
+    <a href="/food/testing" class="mt-2 inline-block">How to get food tested properly</a>
+  </section>
+</div>
+{% endblock %}

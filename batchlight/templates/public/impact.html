@@ -28,6 +28,14 @@
     <div class="stat"><p class="stat-value">{{ reach.holdings_with_batch|int }}</p><p class="stat-label">of those with a batch number, so matches are precise</p></div>
   </div>
 
+  <h2 class="mt-8 text-lg font-bold">Food safety</h2>
+  <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="stat"><p class="stat-value">{{ food.food_alerts|int }}</p><p class="stat-label">food recalls and actions people can search</p></div>
+    <div class="stat"><p class="stat-value">{{ food.reports_total|int }}</p><p class="stat-label">consumer reports received</p></div>
+    <div class="stat"><p class="stat-value">{{ food.reports_reviewed|int }}</p><p class="stat-label">reports reviewed by a curator{% if food.reports_forwarded %}, {{ food.reports_forwarded }} forwarded to an authority{% endif %}</p></div>
+    <div class="stat"><p class="stat-value">{{ food.labs|int }}</p><p class="stat-label">testing labs with checked accreditation</p></div>
+  </div>
+
   <div class="mt-8 grid gap-6 md:grid-cols-2">
     <section class="card card-pad"><h2 class="font-bold">Alerts by source</h2>
       <ul class="mt-3 space-y-2 text-sm">{% for name, count in alerts.by_source %}<li class="flex justify-between"><span>{{ name }}</span><span class="font-semibold">{{ count|int }}</span></li>{% else %}<li class="text-ink-500">No alerts yet.</li>{% endfor %}</ul></section>

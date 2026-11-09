@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "macros.html" import food_alert_row, pagination with context %}
+{% block title %}Food recalls{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <h1 class="text-2xl font-bold sm:text-3xl">Food recalls</h1>
+  <form method="get" role="search" class="mt-4 flex max-w-2xl gap-2">
+    <label for="r-q" class="sr-only">Product, brand, batch or barcode</label>
+    <input id="r-q" name="q" value="{{ q }}" class="input" placeholder="Product, brand, batch code or barcode number">
+    {% if country %}<input type="hidden" name="country" value="{{ country }}">{% endif %}
+    <button class="btn-primary" type="submit">Search</button>
+  </form>
+  <nav class="mt-4 flex flex-wrap gap-2" aria-label="Filter by country">
+    {% for code, label in tabs %}
+    <a href="{{ query(request, country=code, page=None) }}" class="btn-sm {{ 'btn-primary' if code == country else 'btn-secondary' }}" {% if code == country %}aria-current="page"{% endif %}>{{ code|flag if code else "" }} {{ label }}</a>
+    {% endfor %}
+  </nav>
+
+  {% if barcode %}
+  <div class="mt-4 rounded-lg px-4 py-3 text-sm {{ 'bg-ink-100 text-ink-800' if barcode.valid else 'bg-red-50 text-red-900' }}">
+    {% if barcode.valid %}Searching recalls for {{ barcode.kind }} barcode <span class="font-mono">{{ barcode.digits }}</span>.{% else %}{{ barcode.message }}{% endif %}
+    <a href="/food/verify?barcode={{ q|urlencode }}">Check this barcode</a>
+  </div>
+  {% endif %}
+
+  {% if topics %}
+  <div class="mt-4 rounded-xl bg-beam-50 p-4 text-sm ring-1 ring-beam-200">
+    <p class="font-semibold text-ink-900">What testing has found:</p>
+    <p class="mt-1">{% for t in topics %}<a href="/food/reported/{{ t.slug }}">{{ t.name }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  </div>
+  {% endif %}
+
+  <p class="mt-6 text-sm text-ink-600">{{ page.total|int }} recall{{ "s" if page.total != 1 }}{% if q %} matching “{{ q }}”{% endif %}{% if country %} from {{ country|flag }} {{ country_label }}{% endif %}, newest first.</p>
+  {% if page.items %}
+  <ul class="mt-3 space-y-3">{% for alert in page.items %}{{ food_alert_row(alert) }}{% endfor %}</ul>
+  {{ pagination(page.page, page.pages) }}
+  {% elif q %}
+  <div class="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
+    <p class="font-semibold">No recall found for “{{ q }}”.</p>
+    <p class="mt-1 text-sm">This is not proof the product is safe or genuine. We only know about recalls from the sources below, and India's coverage is incomplete. If something seems wrong, <a href="/food/report?product={{ q|urlencode }}">report it</a>.</p>
+  </div>
+  {% endif %}
+
+  <section class="mt-8">
+    <h2 class="text-sm font-semibold uppercase tracking-wide text-ink-500">Sources searched</h2>
+    <ul class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {% for row in sources %}<li class="card px-4 py-3 text-sm"><p class="font-medium text-ink-900">{{ row.source.country_code|flag }} {{ row.source.name }}</p><p class="text-ink-500">{{ row.alerts|int }} recalls · {% if row.source.automated %}refreshed {{ row.source.last_success_at|ago }}{% else %}added by curators{% endif %}</p></li>{% endfor %}
+    </ul>
+  </section>
+</div>
+{% endblock %}

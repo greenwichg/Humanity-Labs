@@ -75,6 +75,7 @@ def test_public_pages_render_with_data(client, ingest):
     ingest("uk-mhra")
     for path in [
         "/",
+        "/medicines",
         "/check",
         "/check?batch=E941A&product=Tropicamide",
         "/alerts",
@@ -92,7 +93,8 @@ def test_public_pages_render_with_data(client, ingest):
         response = client.get(path)
         assert response.status_code == 200, path
     home = client.get("/")
-    assert "Latest serious alerts" in home.text
+    assert "Check a medicine batch" in home.text and "Check a food product" in home.text
+    assert "Latest serious alerts" in client.get("/medicines").text
     check = client.get("/check?batch=E941A&product=Tropicamide eye drops").text
     assert "Batch E941A is listed" in check
     alert_link = re.search(r'href="(/alerts/[0-9a-f-]{36})"', client.get("/alerts").text).group(1)

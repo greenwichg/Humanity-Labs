@@ -1,14 +1,15 @@
-"""Public pages: home, batch check, alert search, manufacturers, sources, impact, health checks."""
+"""Public pages: consumer home, medicine module (batch check, alerts, manufacturers), sources, impact, health checks."""
 
 from __future__ import annotations
 
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy import select, text
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import selectinload
 
+from ...food.knowledge import TOPICS
 from ...models import ALERT_TYPES, SEVERITIES, Alert, Match, Source
 from ...services import metrics
 from ...services.alerts import check_batch, first_lots, manufacturer_alerts, manufacturer_index, search_alerts, sources_status
@@ -19,17 +20,39 @@ router = APIRouter()
 LOTS_SHOWN = 300
 
 
-@router.get("/", include_in_schema=False)
-def home(request: Request, db: DB, auth: OptionalAuth):
-    recent = db.scalars(
+def recent_alerts(db, category: str, limit: int) -> list[Alert]:
+    return db.scalars(
         select(Alert)
-        .where(Alert.severity.in_(("critical", "high")))
+        .where(Alert.category == category, Alert.severity.in_(("critical", "high")))
         .order_by(Alert.published_at.desc().nulls_last(), Alert.created_at.desc())
-        .limit(6)
+        .limit(limit)
         .options(selectinload(Alert.source))
     ).all()
+
+
+@router.get("/", include_in_schema=False)
+def home(request: Request, db: DB, auth: OptionalAuth):
+    """Consumer-first landing page for medicines and food."""
+    counts = dict(db.execute(select(Alert.category, func.count()).group_by(Alert.category)).all())
     return render(
-        request, "public/home.html", {"recent": recent, "alert_stats": metrics.alert_metrics(db), "sources": sources_status(db)}
+        request,
+        "public/consumer_home.html",
+        {
+            "medicine_alerts": recent_alerts(db, "medicine", 3),
+            "food_alerts": recent_alerts(db, "food", 3),
+            "counts": counts,
+            "topics": TOPICS[1:5],
+        },
+    )
+
+
+@router.get("/medicines", include_in_schema=False)
+def medicines(request: Request, db: DB, auth: OptionalAuth):
+    """Batchlight: medicine safety alerts, for the public and for pharmacies and clinics."""
+    return render(
+        request,
+        "public/medicines.html",
+        {"recent": recent_alerts(db, "medicine", 6), "alert_stats": metrics.alert_metrics(db), "sources": sources_status(db)},
     )
 
 
@@ -75,7 +98,7 @@ def alerts(
             "source": source,
             "severity": severity,
             "type": type,
-            "sources": db.scalars(select(Source).order_by(Source.name)).all(),
+            "sources": db.scalars(select(Source).where(Source.category == "medicine").order_by(Source.name)).all(),
         },
     )
 
@@ -85,6 +108,8 @@ def alert_detail(request: Request, alert_id: uuid.UUID, db: DB, auth: OptionalAu
     alert = db.scalar(select(Alert).where(Alert.id == alert_id).options(selectinload(Alert.source)))
     if alert is None:
         raise HTTPException(404)
+    if alert.category == "food":
+        return RedirectResponse(f"/food/recalls/{alert.id}", status_code=301)
     lots = first_lots(db, [alert.id], LOTS_SHOWN)[alert.id]
     own_matches = []
     if auth and auth.org:
@@ -110,7 +135,7 @@ def manufacturer(request: Request, slug: str, db: DB, auth: OptionalAuth):
 
 @router.get("/sources", include_in_schema=False)
 def sources(request: Request, db: DB, auth: OptionalAuth):
-    return render(request, "public/sources.html", {"sources": sources_status(db)})
+    return render(request, "public/sources.html", {"sources": sources_status(db, category=None)})
 
 
 @router.get("/impact", include_in_schema=False)
@@ -118,7 +143,12 @@ def impact(request: Request, db: DB, auth: OptionalAuth):
     return render(
         request,
         "public/impact.html",
-        {"alerts": metrics.alert_metrics(db), "matches": metrics.match_metrics(db), "reach": metrics.reach_metrics(db)},
+        {
+            "alerts": metrics.alert_metrics(db),
+            "matches": metrics.match_metrics(db),
+            "reach": metrics.reach_metrics(db),
+            "food": metrics.food_metrics(db),
+        },
     )
 
 

@@ -200,7 +200,10 @@ def match_alerts(session: Session, alert_ids: Iterable[uuid.UUID]) -> list[uuid.
     alert_ids = list(alert_ids)
     if not alert_ids:
         return created
-    alerts = session.scalars(select(Alert).where(Alert.id.in_(alert_ids)).options(selectinload(Alert.lots))).all()
+    alerts = session.scalars(
+        # Only medicine alerts are matched against workspace stock; food alerts are for consumers.
+        select(Alert).where(Alert.id.in_(alert_ids), Alert.category == "medicine").options(selectinload(Alert.lots))
+    ).all()
     for alert in alerts:
         facts = AlertFacts.from_alert(alert)
         conditions = []
@@ -253,7 +256,11 @@ def match_holdings(session: Session, holdings: Iterable[Holding]) -> list[uuid.U
         if not conditions:
             continue
         candidates = session.scalars(
-            select(Alert).where(or_(*conditions), or_(Alert.published_at.is_(None), Alert.published_at >= cutoff))
+            select(Alert).where(
+                or_(*conditions),
+                or_(Alert.published_at.is_(None), Alert.published_at >= cutoff),
+                Alert.category == "medicine",
+            )
         ).all()
         facts = HoldingFacts.from_holding(holding)
         for alert in candidates:

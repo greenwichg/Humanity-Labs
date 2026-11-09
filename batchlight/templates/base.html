@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Medicine safety alerts, batch by batch{% endblock %} · Batchlight</title>
+  <title>{% block title %}Check medicines and food against official safety alerts{% endblock %} · Humanity Labs</title>
   <meta name="description" content="{% block description %}Batchlight brings medicine recalls and falsified-product alerts from regulators worldwide to the pharmacies, clinics and families holding the affected batches.{% endblock %}">
   <meta name="theme-color" content="#13202f">
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
@@ -16,36 +16,54 @@
     <div class="container-page flex items-center justify-between gap-3 py-3">
       <a href="/" class="flex items-center gap-2.5 text-white no-underline">
         <img src="/static/logo.svg" alt="" width="34" height="34" class="h-8 w-8">
-        <span class="text-lg font-bold tracking-tight">Batchlight</span>
+        <span class="text-lg font-bold tracking-tight">Humanity Labs</span>
       </a>
-      {% set nav = [("/check", "Check a batch"), ("/alerts", "Alerts"), ("/manufacturers", "Manufacturers"), ("/impact", "Impact")] %}
+      {% set medicine_paths = ["/medicines", "/check", "/alerts", "/manufacturers", "/impact"] %}
+      {% set in_medicines = path in medicine_paths or path.startswith("/alerts/") or path.startswith("/manufacturers/") %}
+      {% set in_food = path.startswith("/food") %}
+      {% set nav = [("/medicines", "Medicines", in_medicines), ("/food", "Food", in_food), ("/about", "How it works", path == "/about")] %}
       <nav aria-label="Main" class="hidden items-center gap-1 md:flex">
-        {% for href, label in nav %}
-        <a href="{{ href }}" class="nav-link {% if path.startswith(href) %}nav-link-active{% endif %}" {% if path.startswith(href) %}aria-current="page"{% endif %}>{{ label }}</a>
+        {% for href, label, active in nav %}
+        <a href="{{ href }}" class="nav-link {% if active %}nav-link-active{% endif %}" {% if active %}aria-current="page"{% endif %}>{{ label }}</a>
         {% endfor %}
       </nav>
       <div class="flex items-center gap-2">
+        <a href="/food/report" class="btn-beam btn-sm"><span class="sm:hidden">Report</span><span class="hidden sm:inline">Report a problem</span></a>
         {% if auth %}
           {% if auth.org %}
-          <a href="/app/notifications" class="nav-link relative" aria-label="Notifications{% if unread %}, {{ unread }} unread{% endif %}">
+          <a href="/app/notifications" class="nav-link relative hidden sm:inline-block" aria-label="Notifications{% if unread %}, {{ unread }} unread{% endif %}">
             <span aria-hidden="true">Inbox</span>
             {% if unread %}<span class="ml-1 rounded-full bg-beam-400 px-1.5 py-0.5 text-xs font-bold text-ink-950">{{ unread if unread < 100 else "99+" }}</span>{% endif %}
           </a>
           {% endif %}
-          <a href="/app" class="btn-beam btn-sm hidden sm:inline-flex">My workspace</a>
+          <a href="/app" class="nav-link hidden sm:inline-block">My workspace</a>
         {% else %}
           <a href="/login" class="nav-link hidden sm:inline-block">Sign in</a>
-          <a href="/signup" class="btn-beam btn-sm">Get started free</a>
         {% endif %}
         <details class="relative md:hidden">
           <summary class="nav-link cursor-pointer list-none" aria-label="Menu">Menu</summary>
-          <div class="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-ink-100 bg-white p-2 shadow-lg">
-            {% for href, label in nav %}<a href="{{ href }}" class="side-link">{{ label }}</a>{% endfor %}
+          <div class="absolute right-0 z-40 mt-2 w-60 rounded-xl border border-ink-100 bg-white p-2 shadow-lg">
+            {% for href, label, active in nav %}<a href="{{ href }}" class="side-link">{{ label }}</a>{% endfor %}
             {% if auth %}<a href="/app" class="side-link">My workspace</a>{% else %}<a href="/login" class="side-link">Sign in</a>{% endif %}
           </div>
         </details>
       </div>
     </div>
+    {% if in_medicines or in_food %}
+    {% if in_food %}
+      {% set subnav = [("/food", "Overview"), ("/food/recalls", "Recalls"), ("/food/reported", "What tests found"), ("/food/verify", "Check a product"), ("/food/testing", "Get food tested")] %}
+    {% else %}
+      {% set subnav = [("/medicines", "Overview"), ("/check", "Check a batch"), ("/alerts", "Alerts"), ("/manufacturers", "Manufacturers"), ("/impact", "Impact")] %}
+    {% endif %}
+    <div class="border-t border-ink-800 bg-ink-950/40">
+      <nav aria-label="{{ 'Food' if in_food else 'Medicines' }} section" class="container-page flex gap-1 overflow-x-auto py-1.5 text-sm">
+        {% for href, label in subnav %}
+        {% set active = path == href or (href not in ("/food", "/medicines") and path.startswith(href)) %}
+        <a href="{{ href }}" class="whitespace-nowrap rounded-md px-3 py-1.5 no-underline {{ 'bg-ink-800 text-white' if active else 'text-ink-200 hover:text-white' }}" {% if active %}aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </nav>
+    </div>
+    {% endif %}
   </header>
 
   {% if flash %}
@@ -60,18 +78,25 @@
   </main>
 
   <footer class="mt-16 border-t border-ink-100 bg-white">
-    <div class="container-page grid gap-6 py-8 text-sm text-ink-600 md:grid-cols-3">
+    <div class="container-page grid gap-6 py-8 text-sm text-ink-600 md:grid-cols-4">
       <div>
-        <div class="flex items-center gap-2 font-semibold text-ink-900"><img src="/static/logo.svg" alt="" class="h-6 w-6"> Batchlight</div>
-        <p class="mt-2">Medicine safety alerts from regulators worldwide, matched batch by batch to the stock and medicines people hold.</p>
+        <div class="flex items-center gap-2 font-semibold text-ink-900"><img src="/static/logo.svg" alt="" class="h-6 w-6"> Humanity Labs</div>
+        <p class="mt-2">Free tools to check medicines and food against official safety alerts. Medicine alerts are powered by Batchlight.</p>
       </div>
       <div>
         <p class="font-semibold text-ink-900">Important</p>
-        <p class="mt-2">Batchlight relays official alerts and links to each source. It does not give medical advice. Don't stop taking a medicine without speaking to a pharmacist or doctor, unless an alert tells you to.</p>
+        <p class="mt-2">We relay official alerts and published test results, with a link to every source. We do not test products ourselves and cannot tell whether a product is adulterated. This is not medical advice.</p>
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <p class="font-semibold text-ink-900">Use</p>
+        <a href="/medicines">Medicine alerts</a>
+        <a href="/food">Food safety</a>
+        <a href="/food/report">Report a food problem</a>
+        <a href="/signup">For pharmacies and clinics</a>
       </div>
       <div class="flex flex-col gap-1.5">
         <p class="font-semibold text-ink-900">More</p>
-        <a href="/about">How Batchlight works</a>
+        <a href="/about">How it works</a>
         <a href="/sources">Data sources</a>
         <a href="/api/docs">API documentation</a>
         <a href="https://github.com/greenwichg/Humanity-Labs">Source code</a>
