@@ -6,10 +6,10 @@ import re
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
-from ..matching import AlertFacts, Decision, HoldingFacts, score
+from ..matching import Decision, HoldingFacts, facts_for_holding, score
 from ..models import Alert, AlertLot, Source
 from ..text import lot_key, manufacturer_key, manufacturer_slug, name_tokens, strengths
 
@@ -66,25 +66,23 @@ def search_alerts(
 
 
 def first_lots(session: Session, alert_ids: list, limit: int = 100) -> dict:
-    """Up to ``limit`` batches per alert, without loading alerts that list thousands of serial numbers."""
+    """Up to ``limit`` batches per alert, in listed order.
+
+    A LATERAL ... LIMIT over the (alert_id, id) index reads only the rows it
+    returns, even for device recalls that list thousands of serial numbers.
+    """
     if not alert_ids:
         return {}
-    ranked = (
-        select(
-            AlertLot.alert_id,
-            AlertLot.lot,
-            AlertLot.expiry_text,
-            func.row_number().over(partition_by=AlertLot.alert_id, order_by=AlertLot.id).label("rn"),
-        )
-        .where(AlertLot.alert_id.in_(alert_ids))
-        .subquery()
-    )
     out: dict = {alert_id: [] for alert_id in alert_ids}
-    for row in session.execute(
-        select(ranked.c.alert_id, ranked.c.lot, ranked.c.expiry_text)
-        .where(ranked.c.rn <= limit)
-        .order_by(ranked.c.alert_id, ranked.c.rn)
-    ):
+    rows = session.execute(
+        text(
+            "SELECT a.id AS alert_id, l.lot, l.expiry_text FROM unnest(CAST(:ids AS uuid[])) AS a(id) "
+            "CROSS JOIN LATERAL (SELECT lot, expiry_text, id FROM alert_lots WHERE alert_id = a.id ORDER BY id LIMIT :n) l "
+            "ORDER BY a.id, l.id"
+        ),
+        {"ids": list(dict.fromkeys(alert_ids)), "n": limit},
+    )
+    for row in rows:
         out[row.alert_id].append((row.lot, row.expiry_text))
     return out
 
@@ -107,28 +105,27 @@ def check_batch(session: Session, batch: str, product: str | None = None, manufa
         strengths=strengths(product),
     )
     candidates: dict = {}
+    listed: set = set()
     if key:
         for alert in session.scalars(
-            select(Alert)
-            .join(AlertLot)
-            .where(AlertLot.lot_key == key)
-            .options(selectinload(Alert.lots), selectinload(Alert.source))
+            select(Alert).join(AlertLot).where(AlertLot.lot_key == key).options(selectinload(Alert.source))
         ):
             candidates[alert.id] = alert
+            listed.add(alert.id)
     if product and holding.name_tokens:
         for alert in session.scalars(
             select(Alert)
             .where(Alert.name_tokens.overlap(sorted(holding.name_tokens)))
             .order_by(Alert.published_at.desc().nulls_last())
             .limit(300)
-            .options(selectinload(Alert.lots), selectinload(Alert.source))
+            .options(selectinload(Alert.source))
         ):
             candidates.setdefault(alert.id, alert)
     results = []
     for alert in candidates.values():
-        batch_match = bool(key) and key in {lot.lot_key for lot in alert.lots}
+        batch_match = alert.id in listed
         if product:
-            decision = score(AlertFacts.from_alert(alert), holding, strict=False)
+            decision = score(facts_for_holding(alert, key, batch_match), holding, strict=False)
             if decision:
                 results.append(CheckResult(alert, decision, batch_match))
         elif batch_match:

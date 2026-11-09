@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..matching import match_holdings
+from ..matching import match_holdings, rescore_open_matches
 from ..models import Holding
 from ..text import lot_key, name_tokens
 
@@ -109,14 +109,18 @@ def create_holding(
 
 
 def update_holding(session: Session, holding: Holding, data: HoldingInput) -> list[uuid.UUID]:
+    """Save edits, drop open matches the edit invalidates (e.g. a corrected batch number), then re-match."""
     apply_input(holding, data)
     session.flush()
+    rescore_open_matches(session, holding_ids=[holding.id])
     return match_holdings(session, [holding])
 
 
 def archive_holding(session: Session, holding: Holding) -> None:
+    """Remove a holding from the list. Open matches go with it; resolved matches stay as history."""
     holding.archived_at = datetime.now(UTC)
     session.flush()
+    rescore_open_matches(session, holding_ids=[holding.id])
 
 
 # --------------------------------------------------------------------------- CSV
@@ -260,6 +264,12 @@ def import_rows(session: Session, org_id: uuid.UUID, rows: list[HoldingInput], u
     return report
 
 
+def _cell(value) -> str:
+    """Neutralise spreadsheet formulas: a cell starting with = + - @ would be evaluated by Excel or Sheets."""
+    text = "" if value is None else str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
 def export_csv(holdings: list[Holding]) -> str:
     out = io.StringIO()
     writer = csv.writer(out)
@@ -267,17 +277,20 @@ def export_csv(holdings: list[Holding]) -> str:
     for h in holdings:
         writer.writerow(
             [
-                h.product_name,
-                h.active_ingredient or "",
-                h.strength or "",
-                h.dosage_form or "",
-                h.manufacturer or "",
-                h.product_code or "",
-                h.lot or "",
-                h.expiry_date.isoformat() if h.expiry_date else "",
-                "" if h.quantity is None else h.quantity,
-                h.location or "",
-                h.notes or "",
+                _cell(v)
+                for v in [
+                    h.product_name,
+                    h.active_ingredient or "",
+                    h.strength or "",
+                    h.dosage_form or "",
+                    h.manufacturer or "",
+                    h.product_code or "",
+                    h.lot or "",
+                    h.expiry_date.isoformat() if h.expiry_date else "",
+                    "" if h.quantity is None else h.quantity,
+                    h.location or "",
+                    h.notes or "",
+                ]
             ]
         )
     return out.getvalue()

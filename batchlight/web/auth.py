@@ -189,7 +189,14 @@ CuratorAuth = Annotated[AuthContext, Depends(require_curator)]
 
 
 def safe_next(value: str | None, default: str = "/app") -> str:
-    if value and value.startswith("/") and not value.startswith("//") and "\\" not in value:
+    """Only same-site paths. Browsers drop tabs and newlines, so "/\t/evil" would become "//evil"."""
+    if (
+        value
+        and value.startswith("/")
+        and not value.startswith("//")
+        and "\\" not in value
+        and all(ch.isprintable() and not ch.isspace() for ch in value)
+    ):
         return value
     return default
 

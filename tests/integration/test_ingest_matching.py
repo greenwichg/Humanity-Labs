@@ -161,3 +161,59 @@ def test_health_canada_summary_refresh_keeps_page_details(ingest, db, monkeypatc
     db.expire_all()
     alert = db.scalar(select(Alert).where(Alert.title.like("Cyclophosphamide%")))
     assert [lot.lot for lot in alert.lots] == ["7Z10346A"] and alert.manufacturer == "Marcan Pharmaceuticals Inc"
+
+
+def test_correcting_a_batch_number_clears_the_stale_match(client, ingest, db):
+    from batchlight.models import Holding
+
+    signup(client)
+    post_form(client, "/app/inventory", {"product_name": "Cinacalcet 30 mg", "lot": "7717825A", "manufacturer": "Strides"})
+    ingest("us-fda-drug")
+    assert count(db, Match) == 1
+    holding = db.scalar(select(Holding))
+    post_form(
+        client,
+        f"/app/inventory/{holding.id}/edit",
+        {"product_name": "Cinacalcet 30 mg", "lot": "7717826B", "manufacturer": "Cipla"},
+    )
+    assert count(db, Match) == 0
+
+
+def test_archiving_removes_open_matches_but_keeps_resolved_history(client, ingest, db):
+    from batchlight.models import Holding
+
+    signup(client)
+    post_form(client, "/app/inventory", {"product_name": "Cinacalcet 30 mg", "lot": "7717825A"})
+    post_form(client, "/app/inventory", {"product_name": "Heparin Sodium Injection", "lot": "CU03232A"})
+    ingest("us-fda-drug")
+    cinacalcet_id, heparin_id = (
+        db.scalar(select(Match.id).join(Holding).where(Holding.product_name.like(f"{name}%")))
+        for name in ("Cinacalcet", "Heparin")
+    )
+    post_form(client, f"/app/matches/{heparin_id}/resolve", {"outcome": "returned"})
+    for holding in db.scalars(select(Holding)).all():
+        post_form(client, f"/app/inventory/{holding.id}/archive")
+    db.expire_all()
+    assert db.get(Match, cinacalcet_id) is None
+    assert db.get(Match, heparin_id).status == "resolved"
+
+
+def test_alerts_saved_by_a_failed_run_are_matched_by_the_next_run(client, ingest, db, monkeypatch):
+    import batchlight.matching
+
+    signup(client)
+    post_form(client, "/app/inventory", {"product_name": "Cinacalcet 30 mg", "lot": "7717825A"})
+    real = batchlight.matching.match_alerts
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("matching crashed")
+
+    monkeypatch.setattr(batchlight.matching, "match_alerts", broken)
+    try:
+        ingest("us-fda-drug")
+    except RuntimeError:
+        pass
+    assert count(db, Alert) == 25 and count(db, Match) == 0
+    monkeypatch.setattr(batchlight.matching, "match_alerts", real)
+    run = ingest("us-fda-drug")
+    assert run.created == 0 and run.matched == 1

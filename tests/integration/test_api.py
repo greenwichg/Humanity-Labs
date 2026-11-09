@@ -104,3 +104,28 @@ def test_openapi_document(client):
     spec = client.get("/api/openapi.json").json()
     assert "/api/v1/check" in spec["paths"] and "/api/v1/holdings" in spec["paths"]
     assert not any(path.startswith("/app") for path in spec["paths"])
+
+
+def test_patch_changes_only_the_fields_sent(client, make_client, ingest, db):
+    ingest("us-fda-drug")
+    signup(client)
+    key = create_key(client)
+    api = make_client()
+    headers = {"Authorization": f"Bearer {key}"}
+    created = api.post(
+        "/api/v1/holdings",
+        headers=headers,
+        json={"product_name": "Cinacalcet 30 mg tablets", "batch": "OLD123", "quantity": 30, "location": "Shelf A"},
+    ).json()
+    patched = api.patch(f"/api/v1/holdings/{created['holding']['id']}", headers=headers, json={"batch": "7717825A"})
+    assert patched.status_code == 200
+    body = patched.json()
+    assert (
+        body["holding"]["quantity"] == 30 and body["holding"]["location"] == "Shelf A" and body["holding"]["batch"] == "7717825A"
+    )
+    assert len(body["new_matches"]) == 1
+    cleared = api.patch(f"/api/v1/holdings/{created['holding']['id']}", headers=headers, json={"location": None}).json()
+    assert cleared["holding"]["location"] is None and cleared["holding"]["quantity"] == 30
+    assert (
+        api.patch(f"/api/v1/holdings/{created['holding']['id']}", headers=headers, json={"product_name": None}).status_code == 422
+    )

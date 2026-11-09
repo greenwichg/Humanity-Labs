@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, selectinload
 
@@ -21,6 +21,7 @@ from .models import Alert, AlertLot, Holding, Match
 from .text import codes_match, manufacturer_similarity, name_tokens, strengths
 
 FALSIFIED_TYPES = {"falsified", "substandard"}
+OTHER_BATCHES = "\x00other"  # stands for "the alert lists batches, none of them this holding's"
 # Salts, counter-ions and generic words that appear in many unrelated product names.
 WEAK_TOKENS = frozenset(
     """
@@ -45,11 +46,12 @@ class AlertFacts:
     alert_type: str
 
     @classmethod
-    def from_alert(cls, alert: Alert) -> AlertFacts:
+    def from_alert(cls, alert: Alert, lot_keys: set[str] | None = None) -> AlertFacts:
+        """Facts about an alert. Pass ``lot_keys`` to avoid loading every batch of a large alert."""
         return cls(
             name_tokens=set(alert.name_tokens or []),
             product_tokens=set(name_tokens(*(alert.product_names or []))),
-            lot_keys={lot.lot_key for lot in alert.lots},
+            lot_keys={lot.lot_key for lot in alert.lots} if lot_keys is None else lot_keys,
             all_lots=alert.all_lots,
             manufacturer=alert.manufacturer,
             product_codes=list(alert.product_codes or []),
@@ -218,6 +220,21 @@ def match_alerts(session: Session, alert_ids: Iterable[uuid.UUID]) -> list[uuid.
     return created
 
 
+def facts_for_holding(alert: Alert, holding_lot_key: str | None, listed: bool) -> AlertFacts:
+    """Alert facts sufficient to score one holding, without loading the alert's batch list.
+
+    Scoring only needs to know whether the holding's batch is listed, and
+    whether the alert lists any batches at all.
+    """
+    if listed and holding_lot_key:
+        keys = {holding_lot_key}
+    elif alert.lot_count:
+        keys = {OTHER_BATCHES}
+    else:
+        keys = set()
+    return AlertFacts.from_alert(alert, keys)
+
+
 def match_holdings(session: Session, holdings: Iterable[Holding]) -> list[uuid.UUID]:
     """Match newly created or edited holdings against recent alerts. Returns new match ids."""
     created: list[uuid.UUID] = []
@@ -225,21 +242,22 @@ def match_holdings(session: Session, holdings: Iterable[Holding]) -> list[uuid.U
     for holding in holdings:
         if holding.archived_at is not None:
             continue
+        listed: set[uuid.UUID] = set()
         conditions = []
         if holding.lot_key:
-            conditions.append(Alert.id.in_(select(AlertLot.alert_id).where(AlertLot.lot_key == holding.lot_key)))
+            listed = set(session.scalars(select(AlertLot.alert_id).where(AlertLot.lot_key == holding.lot_key)))
+            if listed:
+                conditions.append(Alert.id.in_(listed))
         if holding.name_tokens:
             conditions.append(Alert.name_tokens.overlap(sorted(set(holding.name_tokens))))
         if not conditions:
             continue
         candidates = session.scalars(
-            select(Alert)
-            .where(or_(*conditions), or_(Alert.published_at.is_(None), Alert.published_at >= cutoff))
-            .options(selectinload(Alert.lots))
+            select(Alert).where(or_(*conditions), or_(Alert.published_at.is_(None), Alert.published_at >= cutoff))
         ).all()
         facts = HoldingFacts.from_holding(holding)
         for alert in candidates:
-            decision = score(AlertFacts.from_alert(alert), facts)
+            decision = score(facts_for_holding(alert, holding.lot_key, alert.id in listed), facts)
             if decision:
                 match_id = _record(session, alert, holding, decision)
                 if match_id:
@@ -247,20 +265,33 @@ def match_holdings(session: Session, holdings: Iterable[Holding]) -> list[uuid.U
     return created
 
 
-def rescore_open_matches(session: Session) -> tuple[int, int]:
+def rescore_open_matches(
+    session: Session, holding_ids: Iterable[uuid.UUID] | None = None, alert_ids: Iterable[uuid.UUID] | None = None
+) -> tuple[int, int]:
     """Re-apply the current rules to open matches. Returns (updated, removed).
 
-    Open matches nobody has acted on are deleted when they no longer qualify;
-    resolved matches are history and are left alone.
+    Used when matching rules change, when a holding is edited (a corrected
+    batch number), and when a regulator updates an alert. Open matches that no
+    longer qualify are deleted; resolved matches are history and are kept.
     """
+    stmt = select(Match).where(Match.status == "open").options(selectinload(Match.alert), selectinload(Match.holding))
+    if holding_ids is not None:
+        stmt = stmt.where(Match.holding_id.in_(list(holding_ids)))
+    if alert_ids is not None:
+        stmt = stmt.where(Match.alert_id.in_(list(alert_ids)))
     updated = removed = 0
-    matches = session.scalars(
-        select(Match)
-        .where(Match.status == "open")
-        .options(selectinload(Match.alert).selectinload(Alert.lots), selectinload(Match.holding))
-    ).all()
-    for match in matches:
-        decision = score(AlertFacts.from_alert(match.alert), HoldingFacts.from_holding(match.holding))
+    for match in session.scalars(stmt).all():
+        lot_key = match.holding.lot_key
+        listed = (
+            bool(lot_key)
+            and session.scalar(
+                select(func.count()).select_from(AlertLot).where(AlertLot.alert_id == match.alert_id, AlertLot.lot_key == lot_key)
+            )
+            > 0
+        )
+        decision = None
+        if match.holding.archived_at is None:
+            decision = score(facts_for_holding(match.alert, lot_key, listed), HoldingFacts.from_holding(match.holding))
         if decision is None:
             session.delete(match)
             removed += 1

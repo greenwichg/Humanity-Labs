@@ -258,7 +258,7 @@ def run_source(
     factory: sessionmaker[Session], adapter: SourceAdapter, client: httpx.Client | None = None, notify: bool = True
 ) -> IngestionRun:
     """Fetch, upsert, match and notify for one source, recording an ingestion run."""
-    from ..matching import match_alerts
+    from ..matching import match_alerts, rescore_open_matches
     from ..services.notifications import notify_new_matches
 
     settings = get_settings()
@@ -273,6 +273,7 @@ def run_source(
         source.last_run_at = datetime.now(UTC)
         session.commit()
         since = settings.ingest_since
+        previous_success = source.last_success_at
         if source.last_success_at:
             since = max(settings.ingest_since, source.last_success_at.date() - timedelta(days=settings.ingest_overlap_days))
         try:
@@ -288,7 +289,13 @@ def run_source(
                 if run.fetched % 200 == 0:
                     session.commit()
             session.commit()
-            new_matches = match_alerts(session, changed)
+            # Alerts saved by an earlier run that failed before matching are matched now too.
+            unmatched_since = select(Alert.id).where(Alert.source_id == source.id)
+            if previous_success is not None:
+                unmatched_since = unmatched_since.where(Alert.updated_at >= previous_success)
+            to_match = list(dict.fromkeys([*changed, *session.scalars(unmatched_since)]))
+            rescore_open_matches(session, alert_ids=changed)
+            new_matches = match_alerts(session, to_match)
             run.matched = len(new_matches)
             session.commit()
             if notify and new_matches:

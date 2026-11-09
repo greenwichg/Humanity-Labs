@@ -132,3 +132,28 @@ def test_export_csv_round_trip(client):
     exported = client.get("/app/inventory/export.csv")
     assert exported.headers["content-type"].startswith("text/csv")
     assert "Amoxicillin 500 mg capsules,,,,Example Pharma Ltd,,AMX-2401,2027-04-30,120" in exported.text
+
+
+def test_export_neutralises_spreadsheet_formulas(client):
+    signup(client)
+    post_form(client, "/app/inventory", {"product_name": '=HYPERLINK("http://evil.example","x")', "notes": "+1 call me"})
+    exported = client.get("/app/inventory/export.csv").text
+    assert "'=HYPERLINK" in exported and "'+1 call me" in exported
+
+
+def test_member_can_leave_a_workspace(client, make_client, db):
+    import re
+
+    from batchlight.models import Membership, User
+    from batchlight.services.email import OUTBOX
+
+    signup(client)
+    post_form(client, "/app/team/invite", {"email": "member@example.org", "role": "member"})
+    link = re.search(r"http://testserver(/invite/\S+)", OUTBOX[-1].get_content()).group(1)
+    member = make_client()
+    post_form(member, link, {"full_name": "Member Person", "password": "member password 1"})
+    user = db.scalar(select(User).where(User.email == "member@example.org"))
+    owner = db.scalar(select(User).where(User.email == "owner@example.org"))
+    assert post_form(member, f"/app/team/members/{owner.id}/remove").status_code == 403
+    assert post_form(member, f"/app/team/members/{user.id}/remove").status_code == 303
+    assert db.scalar(select(Membership).where(Membership.user_id == user.id)) is None

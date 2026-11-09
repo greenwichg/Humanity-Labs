@@ -42,7 +42,7 @@ from ...services.holdings import (
     parse_csv,
     update_holding,
 )
-from ..auth import CSRF, DB, ManagerAuth, OrgAuth, UserAuth, client_ip, flash
+from ..auth import CSRF, DB, Forbidden, ManagerAuth, OrgAuth, UserAuth, client_ip, flash
 from ..countries import COUNTRIES, valid_country
 from ..templating import render
 from .auth_routes import normalise_email
@@ -559,7 +559,10 @@ def change_role(user_id: uuid.UUID, db: DB, auth: ManagerAuth, role: F = ""):
 
 
 @router.post("/team/members/{user_id}/remove", dependencies=[CSRF])
-def remove_member(user_id: uuid.UUID, db: DB, auth: ManagerAuth):
+def remove_member(user_id: uuid.UUID, db: DB, auth: OrgAuth):
+    """Managers remove members; anyone can leave."""
+    if user_id != auth.user.id and not auth.can("manager"):
+        raise Forbidden("Only workspace owners and managers can remove members.")
     membership = _target_membership(db, auth, user_id)
     if membership.role == "owner" and not auth.can("owner"):
         return _redirect("/app/team", "Only owners can remove an owner.", "error")

@@ -218,7 +218,8 @@ class Alert(Base):
     initiated_at: Mapped[date | None] = mapped_column(Date)
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    raw: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    # Deferred: source payloads and the search vector can be large and are never needed when listing alerts.
+    raw: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}", deferred=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = created_at()
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -230,6 +231,7 @@ class Alert(Base):
             "left(coalesce(lots_text, ''), 20000))",
             persisted=True,
         ),
+        deferred=True,
     )
 
     source: Mapped[Source] = relationship()
@@ -238,9 +240,11 @@ class Alert(Base):
 
 class AlertLot(Base):
     __tablename__ = "alert_lots"
+    # (alert_id, id) serves both "batches of this alert" and "first N batches of this alert" without sorting.
+    __table_args__ = (Index("ix_alert_lots_alert_id_id", "alert_id", "id"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    alert_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False, index=True)
+    alert_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False)
     lot: Mapped[str] = mapped_column(String(100), nullable=False)
     lot_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     expiry_text: Mapped[str | None] = mapped_column(String(100))

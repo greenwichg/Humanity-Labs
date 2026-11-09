@@ -387,10 +387,44 @@ def add_holdings(body: BulkIn, db: DB, key: ApiKeyAuth):
     return BulkOut(created=report.created, duplicates=report.duplicates, new_matches=report.matches)
 
 
+class HoldingPatch(BaseModel):
+    """Fields to change. Omitted fields keep their value; send null to clear an optional field."""
+
+    product_name: str | None = Field(default=None, min_length=2, max_length=300)
+    active_ingredient: str | None = None
+    strength: str | None = None
+    dosage_form: str | None = None
+    manufacturer: str | None = None
+    product_code: str | None = None
+    batch: str | None = None
+    expiry_date: str | None = None
+    quantity: int | None = Field(default=None, ge=0)
+    location: str | None = None
+    notes: str | None = None
+
+
 @router.patch("/holdings/{holding_id}", response_model=HoldingCreated, tags=["workspace"])
-def edit_holding(holding_id: uuid.UUID, item: HoldingIn, db: DB, key: ApiKeyAuth):
+def edit_holding(holding_id: uuid.UUID, item: HoldingPatch, db: DB, key: ApiKeyAuth):
+    """Change some fields of a holding. Editing the batch re-checks it against every alert."""
     holding = _own_holding(db, key, holding_id)
-    new_matches = update_holding(db, holding, _validated(item))
+    current = HoldingIn(
+        product_name=holding.product_name,
+        active_ingredient=holding.active_ingredient,
+        strength=holding.strength,
+        dosage_form=holding.dosage_form,
+        manufacturer=holding.manufacturer,
+        product_code=holding.product_code,
+        batch=holding.lot,
+        expiry_date=holding.expiry_date.isoformat() if holding.expiry_date else None,
+        quantity=holding.quantity,
+        location=holding.location,
+        notes=holding.notes,
+    ).model_dump()
+    changes = item.model_dump(exclude_unset=True)
+    if "product_name" in changes and changes["product_name"] is None:
+        raise HTTPException(422, "product_name cannot be removed")
+    merged = HoldingIn(**{**current, **changes})
+    new_matches = update_holding(db, holding, _validated(merged))
     db.commit()
     return HoldingCreated(holding=HoldingOut.of(holding), new_matches=new_matches)
 

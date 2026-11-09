@@ -26,7 +26,7 @@ def send_email(to: str, subject: str, text: str) -> SendResult:
     message = EmailMessage()
     message["From"] = settings.email_from
     message["To"] = to
-    message["Subject"] = subject
+    message["Subject"] = " ".join(subject.split())[:250]  # names are user input: no line breaks in headers
     message.set_content(text)
     if settings.email_backend == "console":
         OUTBOX.append(message)

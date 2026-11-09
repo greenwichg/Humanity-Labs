@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 
 from ...db import session_factory
 from ...ingest import REGISTRY, ensure_sources, run_source, upsert_alert
-from ...matching import match_alerts
+from ...matching import match_alerts, rescore_open_matches
 from ...models import ALERT_TYPES, SEVERITIES, Alert, IngestionRun, Source
 from ...services import audit
 from ...services.curation import CURATED_CSV_COLUMNS, CuratedAlertInput, parse_curated_csv
@@ -74,6 +74,8 @@ def _publish(db, data: CuratedAlertInput, user_id) -> tuple[Alert, int]:
     source = db.get(Source, "curated")
     alert, _, changed = upsert_alert(db, source, data.to_record(), created_by=user_id)
     db.commit()
+    if changed:
+        rescore_open_matches(db, alert_ids=[alert.id])
     new_matches = match_alerts(db, [alert.id]) if changed else []
     db.commit()
     if new_matches:
