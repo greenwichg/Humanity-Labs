@@ -1,6 +1,6 @@
 # First AWS provisioning: checklist and commands
 
-Prepared on 10 November 2026 from commit `1719e18`, for review before anything is created. Every command and resource count below was checked against that code:
+Prepared on 10 November 2026 from commit `1719e18` and updated for the two fixes described below, for review before anything is created. Every command and resource count below was checked against the code:
 
 - **Resource counts:** each stack was planned offline with mocked AWS providers.
 - **AWS CLI calls:** checked against the AWS API models.
@@ -24,16 +24,14 @@ The whole process has three phases:
 
 ---
 
-## Blockers found while verifying (fix before Phase 2)
+## Issues found while verifying (fixed)
 
-These are code issues. This commit changes documentation only, so they are **not fixed yet**. Each needs your approval to change.
+Both were found while checking this document against the code, and fixed in the next commit with regression tests. Neither adds or removes a resource, so the counts below are unchanged.
 
-1. **The first one-off task cannot start (confirmed).**
-   - **What happens:** before migrating, the provision workflow applies only part of the app stack: `terraform apply -target=aws_ecs_cluster.main -target=aws_ecs_task_definition.cli` in `.github/workflows/aws-deploy-core.yml`. It then runs the email check and the migrations as one-off ECS tasks.
-   - **What's missing:** Terraform's `-target` includes only what the targets depend on. The task definition depends on the execution role, but not on the role's two permission attachments (`aws_iam_role_policy_attachment.execution` and `aws_iam_role_policy.execution_secrets`). An offline plan of that targeted apply creates the cluster, the task definition, the role, the load balancer and its security group, and **not** those two attachments.
-   - **Effect:** the email-check task could not pull its image, read its secrets or write logs. The first provision would stop there, after the platform has been created.
-   - **Proposed fix (small):** add `depends_on = [aws_iam_role_policy_attachment.execution, aws_iam_role_policy.execution_secrets]` to the task definitions in `infra/terraform/app/main.tf`, plus an offline test that plans the targeted apply and checks both attachments are in it.
-2. **The permissions boundary may block reading secrets (not verified; precaution).** The ECS execution role carries the `humanity-labs-ecs-boundary` permissions boundary, which allows `secretsmanager:GetSecretValue` but not `kms:Decrypt`. The secrets use the AWS-managed key, whose key policy normally grants decryption through Secrets Manager. Whether a permissions boundary still limits that cannot be confirmed without AWS. The low-risk fix is to add `kms:Decrypt` to the boundary, limited by `kms:ViaService = secretsmanager.ap-south-1.amazonaws.com`. That change belongs to the bootstrap stack, so make it before Phase 1.
+1. **The first one-off task could not start (confirmed, fixed).**
+   - **What happened:** before migrating, the provision workflow applies only part of the app stack: `terraform apply -target=aws_ecs_cluster.main -target=aws_ecs_task_definition.cli` in `.github/workflows/aws-deploy-core.yml`. It then runs the email check and the migrations as one-off ECS tasks. Terraform's `-target` includes only what the targets depend on, and the task definition did not depend on the execution role's two permission resources (`aws_iam_role_policy_attachment.execution` and `aws_iam_role_policy.execution_secrets`). So the email-check task could not have pulled its image, read its secrets or written logs, and the first provision would have stopped there, after the platform had been created.
+   - **Fix:** the task definitions in `infra/terraform/app/main.tf` now depend on both resources, so the partial apply creates them. An offline Terraform test plans that exact partial apply and checks both are in it; a Python test keeps its targets identical to the workflow's.
+2. **The permissions boundary might have blocked reading secrets (precaution, fixed).** The ECS execution role carries the `humanity-labs-ecs-boundary` permissions boundary, which allowed `secretsmanager:GetSecretValue` but not `kms:Decrypt`. The secrets use the AWS managed key, whose key policy grants decryption through Secrets Manager; whether a boundary still limits that cannot be confirmed without AWS. The boundary now also allows `kms:Decrypt` on this account's keys in `ap-south-1`, only when Secrets Manager makes the request (`kms:ViaService = secretsmanager.ap-south-1.amazonaws.com`). It is part of the bootstrap stack, so it takes effect when you run `bootstrap.sh`.
 
 ---
 
@@ -153,7 +151,7 @@ The app stack cannot be previewed yet: it reads the platform's outputs, which ex
 
 ### 4b. Run the provision workflow
 
-**[APPROVAL REQUIRED: creates 73 Terraform resources, DNS records and data]** First fix the blockers above, and check that section 2's SES checks pass.
+**[APPROVAL REQUIRED: creates 73 Terraform resources, DNS records and data]** First check that section 2's SES checks pass.
 
 In GitHub: *Actions → AWS provision → Run workflow*, on branch `main`, with `seed` ticked and `restore_snapshot` empty. Then approve the run in the `production` environment. The command-line equivalent:
 ```bash
@@ -165,7 +163,7 @@ What the run does, in order (from `.github/workflows/aws-deploy-core.yml`):
 
 1. **Platform:** plans the platform stack, checks the plan with the data-loss guard, then applies it, creating the 45 resources below.
 2. **Image:** builds the ARM64 container image and pushes it to the new registry.
-3. **Partial app apply:** applies the app stack's cluster and one-off task definition. With its dependencies, this also creates the execution role, the load balancer and its security group early.
+3. **Partial app apply:** applies the app stack's cluster and one-off task definition. With its dependencies, this also creates the execution role and its two permission policies, the load balancer and its security group early.
 4. **Email check:** confirms SES production access and the verified domain, checks the SMTP credentials are stored, then runs an SMTP login test as a one-off task. **The run stops here if email isn't ready**, after the platform has been created, so the database and other resources are already billing.
 5. **Data:** runs the database migrations, then loads the hand-checked Indian alerts, each as a one-off task.
 6. **Full app apply:** applies the rest of the app stack: services, HTTPS listener, WAF and the DNS records.
@@ -254,7 +252,7 @@ Later removals:
 **Ordering and first run**
 
 - **SES first.** The run creates the platform before it reaches the email check. If SES isn't ready, it stops with billable resources already created. Run the checks in section 2 first.
-- **Blockers above.** Fix them first. More broadly, this is the first real use of the IAM policies, and a missing permission would stop a run without losing data. I would fix the policy, you would re-run `bootstrap.sh`, then re-run provision. The likeliest spots are ACM tagging, the Route 53 record-name condition, WAF and the permissions boundary.
+- **First real use of the IAM policies.** The two issues above are fixed, but a missing permission could still stop a run, without losing data. I would fix the policy, you would re-run `bootstrap.sh`, then re-run provision. The likeliest spots are ACM tagging, the Route 53 record-name condition, WAF and the permissions boundary.
 
 **Behaviour to know**
 

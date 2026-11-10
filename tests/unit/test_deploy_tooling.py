@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -98,6 +99,22 @@ def test_plan_guard_lets_ordinary_changes_through():
         ]
     )
     assert result.returncode == 0, result.stdout
+
+
+def test_targeted_app_apply_is_the_one_the_offline_terraform_test_checks():
+    """The deploy applies part of the app stack before running one-off tasks; the Terraform test plans that same part.
+
+    infra/terraform/app/tests/plan.tftest.hcl checks that this partial apply also gives the execution role its
+    permissions, without which ECS cannot start the email check or the migrations. Keep the two target lists equal.
+    """
+    workflows = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+    applied = [t for wf in workflows for t in re.findall(r"-target=(\S+)", wf.read_text())]
+    tests = (ROOT / "infra" / "terraform" / "app" / "tests" / "plan.tftest.hcl").read_text()
+    block = re.search(r'run "one_off_tasks_can_start_after_the_targeted_apply" \{.*?target\s*=\s*\[([^\]]*)\]', tests, re.S)
+    assert block, "the targeted-apply run is missing from the app stack's Terraform test"
+    tested = [t.strip() for t in block.group(1).split(",") if t.strip()]
+    assert applied == ["aws_ecs_cluster.main", "aws_ecs_task_definition.cli"]
+    assert sorted(applied) == sorted(tested)
 
 
 # --------------------------------------------------------------------------- deploy gate: email must work before rollout

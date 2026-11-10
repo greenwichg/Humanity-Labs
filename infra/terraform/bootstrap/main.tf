@@ -179,6 +179,18 @@ data "aws_iam_policy_document" "ecs_boundary" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = ["arn:${data.aws_partition.current.partition}:secretsmanager:${var.aws_region}:${local.account_id}:secret:${local.name_prefix}/*"]
   }
+  # Secrets Manager decrypts a secret with KMS on the reader's behalf (the secrets use the AWS managed key). A boundary
+  # can limit what a key policy grants a role, so allow decryption here, but only when Secrets Manager asks for it.
+  statement {
+    sid       = "DecryptSecretsOnlyThroughSecretsManager"
+    actions   = ["kms:Decrypt"]
+    resources = ["arn:${data.aws_partition.current.partition}:kms:${var.aws_region}:${local.account_id}:key/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]
+    }
+  }
 }
 
 resource "aws_iam_policy" "ecs_boundary" {

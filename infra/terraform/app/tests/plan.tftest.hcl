@@ -153,3 +153,22 @@ run "production_email_uses_ses_smtp_with_secret_credentials" {
     error_message = "the SMTP user name must not be a plain environment variable (it would show in public deploy logs)"
   }
 }
+
+# The deploy workflow (aws-deploy-core.yml, "Prepare app stack") applies only these two targets, then starts the email
+# check and the migrations as one-off tasks. ECS can start those only if the execution role already has its
+# permissions to pull the image, read the secrets and write logs, so the targeted plan must include them.
+# tests/unit/test_deploy_tooling.py keeps these targets identical to the workflow's.
+run "one_off_tasks_can_start_after_the_targeted_apply" {
+  command = plan
+  plan_options {
+    target = [aws_ecs_cluster.main, aws_ecs_task_definition.cli]
+  }
+  assert {
+    condition     = aws_iam_role_policy_attachment.execution.policy_arn == "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+    error_message = "the targeted apply must attach the ECS task execution policy (image pull and logs)"
+  }
+  assert {
+    condition     = aws_iam_role_policy.execution_secrets.name == "read-app-secrets"
+    error_message = "the targeted apply must give the execution role access to the app's secrets"
+  }
+}

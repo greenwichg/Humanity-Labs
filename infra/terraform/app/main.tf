@@ -105,6 +105,9 @@ resource "aws_ecs_task_definition" "web" {
     secrets                = local.secrets
     logConfiguration       = merge(local.logs, { options = merge(local.logs.options, { "awslogs-stream-prefix" = "web" }) })
   }])
+  # Ordering only: ECS needs these to start a task, and the deploy's targeted apply (aws-deploy-core.yml) creates
+  # just the cluster and the one-off task definition before running migrations, so they must come along with it.
+  depends_on = [aws_iam_role_policy_attachment.execution, aws_iam_role_policy.execution_secrets]
 }
 
 resource "aws_ecs_task_definition" "worker" {
@@ -127,6 +130,9 @@ resource "aws_ecs_task_definition" "worker" {
     secrets          = local.secrets
     logConfiguration = merge(local.logs, { options = merge(local.logs.options, { "awslogs-stream-prefix" = "worker" }) })
   }])
+  # Ordering only: ECS needs these to start a task, and the deploy's targeted apply (aws-deploy-core.yml) creates
+  # just the cluster and the one-off task definition before running migrations, so they must come along with it.
+  depends_on = [aws_iam_role_policy_attachment.execution, aws_iam_role_policy.execution_secrets]
 }
 
 # One-off commands: migrations, seeding, database checks. Run with `aws ecs run-task` and a command override.
@@ -150,6 +156,9 @@ resource "aws_ecs_task_definition" "cli" {
     secrets          = local.secrets
     logConfiguration = merge(local.logs, { options = merge(local.logs.options, { "awslogs-stream-prefix" = "cli" }) })
   }])
+  # Ordering only: ECS needs these to start a task, and the deploy's targeted apply (aws-deploy-core.yml) creates
+  # just the cluster and the one-off task definition before running migrations, so they must come along with it.
+  depends_on = [aws_iam_role_policy_attachment.execution, aws_iam_role_policy.execution_secrets]
 }
 
 # ---------------------------------------------------------------- load balancer

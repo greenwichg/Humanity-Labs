@@ -69,3 +69,33 @@ run "smtp_secret_belongs_to_bootstrap" {
     error_message = "the deploy role needs read-only SES access for the email check"
   }
 }
+
+# Roles the deploy role creates (the ECS execution role) read the app's secrets, which Secrets Manager decrypts with
+# KMS on their behalf. The boundary must allow that decryption, and only through Secrets Manager in this region.
+run "ecs_boundary_allows_reading_secrets_and_nothing_more" {
+  command = plan
+  assert {
+    condition = anytrue([
+      for st in data.aws_iam_policy_document.ecs_boundary.statement :
+      st.actions == toset(["secretsmanager:GetSecretValue"]) && st.resources == toset(["arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/*"])
+    ])
+    error_message = "the boundary must allow reading this project's secrets"
+  }
+  assert {
+    condition = anytrue([
+      for st in data.aws_iam_policy_document.ecs_boundary.statement :
+      st.actions == toset(["kms:Decrypt"]) && st.resources == toset(["arn:aws:kms:ap-south-1:111122223333:key/*"])
+    ])
+    error_message = "the boundary must allow Secrets Manager to decrypt secrets for the role"
+  }
+  assert {
+    condition = alltrue([
+      for st in data.aws_iam_policy_document.ecs_boundary.statement :
+      length(st.actions) == 1 && anytrue([
+        for c in st.condition : c.test == "StringEquals" && c.variable == "kms:ViaService" && toset(c.values) == toset(["secretsmanager.ap-south-1.amazonaws.com"])
+      ])
+      if anytrue([for a in st.actions : startswith(a, "kms:")])
+    ])
+    error_message = "KMS decryption must be allowed only through Secrets Manager, and no other KMS action at all"
+  }
+}

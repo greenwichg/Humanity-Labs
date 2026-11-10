@@ -66,7 +66,7 @@ Security choices:
 
 - **No stored AWS keys.** GitHub Actions gets short-lived credentials through OIDC. The deploy role trusts only jobs of `greenwichg/Humanity-Labs` running in the `production` environment. The backup role trusts only the `main` branch and can only create, tag and delete its own `*-daily-*` snapshots.
 - **A deploy role that cannot become an administrator or destroy backups.** It manages the network, ECS, RDS and the load balancer, but:
-  - it can create only roles named `<project>-ecs-*`, and only with the `<project>-ecs-boundary` permissions boundary (image pulls, logs, this project's secrets);
+  - it can create only roles named `<project>-ecs-*`, and only with the `<project>-ecs-boundary` permissions boundary (image pulls, logs, this project's secrets, and decrypting those secrets only through Secrets Manager);
   - it can attach only the ECS task execution policy, pass roles only to ECS tasks, and cannot change its own role or the backup role;
   - it can read only this project's secrets;
   - explicit denies stop it from deleting or sharing snapshots, deleting retained automated backups, exporting snapshots, or sharing secrets, images or logs with another account.
