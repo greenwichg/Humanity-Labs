@@ -7,13 +7,15 @@
 <li class="card overflow-hidden">
   <a href="/infrastructure/projects/{{ p.id }}" class="block p-4 no-underline hover:bg-ink-50 sm:p-5">
     <div class="flex flex-wrap items-center gap-2 text-xs text-ink-600">
-      <span class="tag">{{ "Programme" if p.level == "programme" else "Contracted work" }}</span>
+      <span class="tag">{{ {"programme": "Programme", "project": "Central project"}.get(p.level, "Contracted work") }}</span>
       <span>{{ ASSET_TYPES.get(p.asset_type, "Other public works") }}</span>
       {% if p.state_slugs %}<span>· {% for s in p.state_slugs[:3] %}{{ region_name(s) }}{% if not loop.last %}, {% endif %}{% endfor %}{% if p.state_slugs|length > 3 %} and {{ p.state_slugs|length - 3 }} more{% endif %}</span>{% endif %}
     </div>
     <p class="mt-2 font-semibold text-ink-950">{{ p.title }}</p>
     <p class="mt-1 text-sm text-ink-600">
-      {% if p.level == "work" %}
+      {% if p.level == "project" %}
+        {{ p.implementing_agency or "Agency not given" }}{% if p.budget_amount %} · cost {{ money(p.budget_amount, p.budget_currency) }}{% endif %}{% if p.status %} · {{ p.status|lower }}{% endif %}
+      {% elif p.level == "work" %}
         {% if p.contractors_text %}{{ p.contractors_text }}{% else %}Contractor not yet known{% endif %}
         {% if p.contract_amount %} · {{ money(p.contract_amount, p.contract_currency) }}{% endif %}
         {% if p.awarded_on %} · awarded {{ p.awarded_on|date }}{% elif p.tendered_on %} · tendered {{ p.tendered_on|date }}{% endif %}

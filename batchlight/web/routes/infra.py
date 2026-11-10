@@ -13,6 +13,7 @@ from ...infra.classify import ASSET_TYPES
 from ...infra.geo import BY_SLUG, REGIONS, region_name
 from ...infra.passport import EVIDENCE_HELP, EVIDENCE_LABELS, facts, money
 from ...infra.sources import NOT_CONNECTED, REGISTRY
+from ...infra.store import party_key
 from ...models import InfraDocument, InfraParty, InfraProject, InfraProjectParty, Source
 from ...services.alerts import Page
 from ..auth import DB, OptionalAuth
@@ -36,7 +37,7 @@ def _children():
 
 def visible():
     """Works, plus programmes that are infrastructure or have works. Other World Bank programmes stay hidden."""
-    return or_(InfraProject.level == "work", InfraProject.asset_type != "other", _children())
+    return or_(InfraProject.level.in_(("work", "project")), InfraProject.asset_type != "other", _children())
 
 
 def state_counts(db) -> dict[str, int]:
@@ -81,6 +82,7 @@ def home(request: Request, db: DB, auth: OptionalAuth):
         db.scalar(select(func.count()).select_from(InfraProject).where(InfraProject.level == "programme", visible())) or 0
     )
     contractors = db.scalar(select(func.count()).select_from(InfraParty).where(InfraParty.kind == "contractor")) or 0
+    central = db.scalar(select(func.count()).select_from(InfraProject).where(InfraProject.level == "project")) or 0
     recent = db.scalars(
         select(InfraProject)
         .where(InfraProject.level == "work", InfraProject.awarded_on.is_not(None))
@@ -96,6 +98,7 @@ def home(request: Request, db: DB, auth: OptionalAuth):
             "works": works,
             "programmes": programmes,
             "contractors": contractors,
+            "central": central,
             "covered": sum(1 for r in REGIONS if counts.get(r.slug)),
             "recent": recent,
             "types": ASSET_TYPES,
@@ -118,7 +121,7 @@ def projects(
     q = q.strip()[:200]
     state = state if state in BY_SLUG else ""
     type = type if type in ASSET_TYPES else ""
-    level = level if level in ("work", "programme") else ""
+    level = level if level in ("work", "programme", "project") else ""
     try:
         contractor_id = uuid.UUID(contractor) if contractor else None
     except ValueError:
@@ -211,6 +214,15 @@ def state_page(request: Request, slug: str, db: DB, auth: OptionalAuth):
         .order_by(InfraProject.approved_on.desc().nulls_last())
         .limit(20)
     ).all()
+    central = db.scalars(
+        select(InfraProject)
+        .where(in_state, InfraProject.level == "project")
+        .order_by(InfraProject.budget_amount.desc().nulls_last())
+        .limit(15)
+    ).all()
+    central_total = (
+        db.scalar(select(func.count()).select_from(InfraProject).where(in_state, InfraProject.level == "project")) or 0
+    )
     recent = db.scalars(
         select(InfraProject)
         .where(in_state, InfraProject.level == "work")
@@ -232,10 +244,31 @@ def state_page(request: Request, slug: str, db: DB, auth: OptionalAuth):
             "by_type": by_type,
             "programmes": programmes,
             "recent": recent,
+            "central": central,
+            "central_total": central_total,
             "audits": audits,
             "pending": NOT_CONNECTED,
         },
     )
+
+
+@router.get("/contractors")
+def contractors(request: Request, db: DB, auth: OptionalAuth, q: str = "", page: int = Query(1, ge=1, le=2_000)):
+    """Contractors named in official award records, most works first."""
+    q = q.strip()[:120]
+    works = func.count(InfraProjectParty.project_id).label("works")
+    stmt = (
+        select(InfraParty, works, func.count(func.distinct(InfraProject.source_id)).label("sources"))
+        .join(InfraProjectParty, InfraProjectParty.party_id == InfraParty.id)
+        .join(InfraProject, InfraProject.id == InfraProjectParty.project_id)
+        .where(InfraParty.kind == "contractor")
+        .group_by(InfraParty.id)
+    )
+    if q:
+        stmt = stmt.where(or_(InfraParty.name.ilike(f"%{q}%"), InfraParty.key.ilike(f"%{party_key(q)}%")))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    rows = db.execute(stmt.order_by(works.desc(), InfraParty.name).offset((page - 1) * 50).limit(50)).all()
+    return render(request, "infra/contractors.html", {"rows": rows, "q": q, "page": Page(rows, total, page, 50)})
 
 
 @router.get("/contractors/{party_id}")
@@ -243,19 +276,61 @@ def contractor(request: Request, party_id: uuid.UUID, db: DB, auth: OptionalAuth
     party = db.get(InfraParty, party_id)
     if party is None:
         raise HTTPException(404)
-    linked = select(InfraProjectParty.project_id).where(InfraProjectParty.party_id == party.id)
-    rows = db.scalars(
-        select(InfraProject).where(InfraProject.id.in_(linked)).order_by(InfraProject.awarded_on.desc().nulls_last()).limit(200)
+    mine = InfraProject.id.in_(select(InfraProjectParty.project_id).where(InfraProjectParty.party_id == party.id))
+    total = db.scalar(select(func.count()).select_from(InfraProject).where(mine)) or 0
+    by_source = db.execute(
+        select(Source.name, func.count())
+        .select_from(InfraProject)
+        .join(Source, Source.id == InfraProject.source_id)
+        .where(mine)
+        .group_by(Source.name)
     ).all()
-    totals: dict[str, float] = {}
-    for r in rows:
-        if r.contract_amount is not None and r.contract_currency:
-            totals[r.contract_currency] = totals.get(r.contract_currency, 0) + float(r.contract_amount)
-    states = sorted({s for r in rows for s in r.state_slugs})
+    by_stage = db.execute(
+        select(InfraProject.status, func.count())
+        .where(mine, InfraProject.status.is_not(None))
+        .group_by(InfraProject.status)
+        .order_by(func.count().desc())
+    ).all()
+    totals = dict(
+        db.execute(
+            select(InfraProject.contract_currency, func.sum(InfraProject.contract_amount))
+            .where(mine, InfraProject.contract_amount.is_not(None))
+            .group_by(InfraProject.contract_currency)
+        ).all()
+    )
+    slug = func.unnest(InfraProject.state_slugs).label("slug")
+    states = sorted(db.scalars(select(func.distinct(select(slug).where(mine).subquery().c.slug))).all())
+    first, last = db.execute(select(func.min(InfraProject.awarded_on), func.max(InfraProject.awarded_on)).where(mine)).one()
+    spans = [
+        (done - awarded).days
+        for awarded, done in db.execute(
+            select(InfraProject.awarded_on, InfraProject.actual_completion_on).where(
+                mine, InfraProject.awarded_on.is_not(None), InfraProject.actual_completion_on.is_not(None)
+            )
+        ).all()
+        if done >= awarded
+    ]
+    timing = None
+    if spans:
+        spans.sort()
+        middle = spans[len(spans) // 2] if len(spans) % 2 else (spans[len(spans) // 2 - 1] + spans[len(spans) // 2]) / 2
+        timing = {"count": len(spans), "median_months": round(middle / 30.44, 1)}
+    rows = db.scalars(select(InfraProject).where(mine).order_by(InfraProject.awarded_on.desc().nulls_last()).limit(50)).all()
     return render(
         request,
         "infra/contractor.html",
-        {"party": party, "rows": rows, "totals": totals, "states": states},
+        {
+            "party": party,
+            "rows": rows,
+            "total": total,
+            "by_source": by_source,
+            "by_stage": by_stage[:8],
+            "totals": totals,
+            "states": states,
+            "first": first,
+            "last": last,
+            "timing": timing,
+        },
     )
 
 

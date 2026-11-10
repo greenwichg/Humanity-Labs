@@ -1,17 +1,40 @@
 {% extends "base.html" %}
-{% from "infra/_macros.html" import project_row with context %}
+{% from "infra/_macros.html" import project_row, badge with context %}
 {% block title %}{{ party.name }} · contracts{% endblock %}
 {% block body %}
 <div class="container-page max-w-5xl py-8">
-  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/infrastructure">Public works</a></nav>
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/infrastructure">Public works</a> › <a href="/infrastructure/contractors">Contractors</a></nav>
   <h1 class="mt-2 text-2xl font-bold sm:text-3xl">{{ party.name }}</h1>
-  <p class="mt-2 max-w-3xl text-sm text-ink-600">Contracts awarded to this name in the official award notices we hold. Names are matched as printed, so a different firm with the same name may appear here, and works under other spellings may be missing. Winning contracts is not evidence of anything wrong.</p>
-  <div class="mt-6 grid gap-4 sm:grid-cols-3">
-    <div class="card card-pad"><p class="text-2xl font-bold">{{ rows|length }}</p><p class="text-sm text-ink-600">contract{{ "s" if rows|length != 1 }} awarded</p></div>
-    <div class="card card-pad"><p class="text-lg font-bold">{% for cur, total in totals.items() %}{{ money(total, cur) }}{% if not loop.last %} + {% endif %}{% else %}Not given{% endfor %}</p><p class="text-sm text-ink-600">total signed contract value</p></div>
-    <div class="card card-pad"><p class="text-sm text-ink-700">{% for s in states %}{{ region_name(s) }}{% if not loop.last %}, {% endif %}{% else %}State not given{% endfor %}</p><p class="text-sm text-ink-600">where</p></div>
-  </div>
-  <p class="mt-4 text-sm text-ink-600">Delays, quality findings and audit observations about this contractor are not in our sources yet. They will appear here only when an official record states them.</p>
-  <ul class="mt-6 space-y-3">{% for p in rows %}{{ project_row(p) }}{% endfor %}</ul>
+  <p class="mt-2 max-w-3xl text-sm text-ink-600">Works awarded to this name in the official records we hold. Names are matched as printed, so a different firm with the same name may appear here, and works under other spellings may be missing. Winning contracts is not evidence of anything wrong.</p>
+
+  <dl class="mt-6 grid gap-4 sm:grid-cols-3">
+    <div class="card card-pad"><dt class="text-sm text-ink-600">Works awarded</dt><dd class="text-2xl font-bold">{{ total|int }}</dd><dd class="mt-1">{{ badge("official") }}</dd></div>
+    <div class="card card-pad"><dt class="text-sm text-ink-600">Signed contract value</dt><dd class="text-lg font-bold">{% for cur, sum in totals.items() %}{{ money(sum, cur) }}{% if not loop.last %} + {% endif %}{% else %}Not given in these records{% endfor %}</dd><dd class="mt-1 text-xs text-ink-500">Only award notices that state a price.</dd></div>
+    <div class="card card-pad"><dt class="text-sm text-ink-600">Awards dated</dt><dd class="text-lg font-bold">{% if first %}{{ first.year }}{% if last and last.year != first.year %}–{{ last.year }}{% endif %}{% else %}Not given{% endif %}</dd></div>
+  </dl>
+
+  <section class="mt-8 grid gap-6 sm:grid-cols-2">
+    <div>
+      <h2 class="text-lg font-bold">Where the records come from</h2>
+      <ul class="mt-2 space-y-1 text-sm">{% for name, n in by_source %}<li>{{ name }}: <strong>{{ n|int }}</strong></li>{% endfor %}</ul>
+      <h2 class="mt-6 text-lg font-bold">States and UTs</h2>
+      <p class="mt-2 text-sm">{% for s in states %}<a href="/infrastructure/states/{{ s }}">{{ region_name(s) }}</a>{% if not loop.last %}, {% endif %}{% else %}Not given in the records.{% endfor %}</p>
+    </div>
+    <div>
+      <h2 class="text-lg font-bold">Stage of the works</h2>
+      {% if by_stage %}<ul class="mt-2 space-y-1 text-sm">{% for stage, n in by_stage %}<li>{{ stage }}: <strong>{{ n|int }}</strong></li>{% endfor %}</ul><p class="mt-1 text-xs text-ink-500">As recorded by each source.</p>{% else %}<p class="mt-2 text-sm text-ink-600">No stage is recorded for these works.</p>{% endif %}
+      <h2 class="mt-6 text-lg font-bold">Time from award to completion</h2>
+      {% if timing %}
+      <p class="mt-2 text-sm">Typically about <strong>{{ timing.median_months }} months</strong> (the middle value across {{ timing.count|int }} work{{ "s" if timing.count != 1 }} with both dates).</p>
+      <p class="mt-1">{{ badge("calculated") }} <span class="text-xs text-ink-500">Worked out by us from the award and completion dates in the records. It does not show whether any work was late: the agreed durations are not in these records.</span></p>
+      {% else %}<p class="mt-2 text-sm text-ink-600">No work in our records has both an award date and a completion date.</p>{% endif %}
+    </div>
+  </section>
+
+  <p class="mt-6 rounded-xl bg-beam-50 p-4 text-sm text-ink-900 ring-1 ring-beam-200">Inspection grades, penalties, blacklisting and audit observations about this contractor are not in our sources yet. They will be shown here only when an official record states them, with a link.</p>
+
+  <h2 class="mt-8 text-xl font-bold">Works</h2>
+  <ul class="mt-3 space-y-3">{% for p in rows %}{{ project_row(p) }}{% endfor %}</ul>
+  {% if total > rows|length %}<p class="mt-3 text-sm"><a href="/infrastructure/projects?contractor={{ party.id }}">See all {{ total|int }} works</a></p>{% endif %}
 </div>
 {% endblock %}

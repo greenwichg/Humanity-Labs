@@ -12,10 +12,13 @@
   </div>
   <div class="mt-4 rounded-xl bg-beam-50 p-4 text-sm text-ink-900 ring-1 ring-beam-200">
     <p class="font-semibold">What is missing for {{ region.name }}</p>
-    <p class="mt-1">We hold PMGSY rural roads and works financed by the World Bank. Works tendered on {{ region.name }}'s own e-procurement portal, national highways and large central projects are not connected yet, so many public works here are not listed. <a href="/infrastructure/sources">See all sources</a>.</p>
+    <p class="mt-1">We hold central projects of ₹150 crore and above, PMGSY rural roads and works financed by the World Bank. Works tendered on {{ region.name }}'s own e-procurement portal and smaller central works are not connected yet, so many public works here are not listed. <a href="/infrastructure/sources">See all sources</a>.</p>
   </div>
   <p class="mt-6"><a href="/infrastructure/projects?state={{ region.slug }}" class="btn-primary">Search projects in {{ region.name }}</a></p>
 
+  {% if central %}
+  <section class="mt-8" aria-labelledby="central-h"><h2 id="central-h" class="text-xl font-bold">Large central projects in {{ region.name }}</h2><p class="mt-1 text-sm text-ink-600">{{ central_total|int }} ongoing project{{ "s" if central_total != 1 }} of ₹150 crore and above, largest first. <a href="/infrastructure/projects?state={{ region.slug }}&level=project">See all</a></p><ul class="mt-3 space-y-3">{% for p in central %}{{ project_row(p) }}{% endfor %}</ul></section>
+  {% endif %}
   {% if recent %}
   <section class="mt-8" aria-labelledby="recent-h"><h2 id="recent-h" class="text-xl font-bold">Latest works</h2><ul class="mt-3 space-y-3">{% for p in recent %}{{ project_row(p) }}{% endfor %}</ul></section>
   {% endif %}

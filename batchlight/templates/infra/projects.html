@@ -13,7 +13,7 @@
     <label for="p-type" class="sr-only">Type of work</label>
     <select id="p-type" name="type" class="input"><option value="">All types</option>{% for key, label in types.items() %}<option value="{{ key }}" {% if key == type %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
     <label for="p-level" class="sr-only">Programmes or works</label>
-    <select id="p-level" name="level" class="input"><option value="">Programmes and works</option><option value="work" {% if level == "work" %}selected{% endif %}>Contracted works</option><option value="programme" {% if level == "programme" %}selected{% endif %}>Programmes</option></select>
+    <select id="p-level" name="level" class="input"><option value="">All kinds</option><option value="work" {% if level == "work" %}selected{% endif %}>Contracted works</option><option value="programme" {% if level == "programme" %}selected{% endif %}>Programmes</option><option value="project" {% if level == "project" %}selected{% endif %}>Central projects (₹150 crore and above)</option></select>
     {% if party %}<input type="hidden" name="contractor" value="{{ party.id }}">{% endif %}
     <button class="btn-primary" type="submit">Search</button>
   </form>

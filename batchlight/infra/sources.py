@@ -696,6 +696,16 @@ REGISTRY: dict[str, InfraSource] = {
 }
 
 
+def _register_mospi() -> None:
+    from .mospi import mospi_source
+
+    adapter = mospi_source()
+    REGISTRY[adapter.id] = adapter
+
+
+_register_mospi()
+
+
 @dataclass(frozen=True)
 class PendingSource:
     name: str
@@ -729,11 +739,11 @@ NOT_CONNECTED: tuple[PendingSource, ...] = (
         "Protected by captchas; not connected.",
     ),
     PendingSource(
-        "Central project monitoring (₹150 crore and above)",
+        "PAIMANA project portal",
         "Ministry of Statistics and Programme Implementation",
-        "https://www.mospi.gov.in/",
-        "Original and revised cost and dates for large central projects.",
-        "Website reachable, but the project-level data has not been located yet.",
+        "https://paimana-proj.mospi.gov.in/",
+        "Live project records behind MoSPI's monthly report.",
+        "Could not be reached from our servers; needs hosting in India. We use MoSPI's monthly report (above) instead.",
     ),
     PendingSource(
         "National highways project data",

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..ingest.base import http_client
 from ..models import InfraDocument, InfraEvent, InfraParty, InfraProject, InfraProjectParty, IngestionRun, Source
+from .passport import money
 from .sources import REGISTRY, DocumentData, EventData, InfraSource, ProjectData
 
 log = logging.getLogger("batchlight.infra")
@@ -124,6 +125,16 @@ def upsert_project(session: Session, source: Source, record: ProjectData) -> tup
     for event in record.events:
         _add_event(project, existing_events, event)
     today = datetime.now(UTC).date()
+    month_only = bool((record.data or {}).get("month_precision"))
+
+    def describe(name: str, value) -> str:
+        if isinstance(value, date) and month_only:
+            return f"{value:%b %Y}"
+        if name in ("budget_amount", "contract_amount") and value is not None:
+            currency = project.budget_currency if name == "budget_amount" else project.contract_currency
+            return money(value, currency) or _fmt(value)
+        return _fmt(value)
+
     for name, old, new in changes:
         label = TRACKED[name]
         _add_event(
@@ -133,7 +144,7 @@ def upsert_project(session: Session, source: Source, record: ProjectData) -> tup
                 f"change-{name}-{today.isoformat()}-{_fmt(new)}"[:200],
                 "change",
                 today,
-                f"{label}: from {_fmt(old)} to {_fmt(new)}",
+                f"{label}: from {describe(name, old)} to {describe(name, new)}",
                 "Seen when we compared the source record with our last copy.",
                 "official",
                 record.events[0].source_name if record.events else "Source record",

@@ -27,6 +27,13 @@ def transport(awards=None):
             return httpx.Response(200, json={"total": len(items), "procnotices": items})
         if request.url.host == "cag.gov.in":
             return httpx.Response(200, text=cag)
+        if request.url.host == "www.mospi.gov.in" and request.method == "POST":
+            title = "<p>Monthly Flash Report on Infrastructure Projects worth Rs. 150 crore and above - September 2026</p>"
+            return httpx.Response(
+                200, json={"data": [{"title": title, "published_year": "2026-10-26", "file_one": {"path": "uploads/fr.pdf"}}]}
+            )
+        if request.url.host == "www.mospi.gov.in":
+            return httpx.Response(200, content=b"%PDF-1.4 stand-in", headers={"content-type": "application/pdf"})
         if request.url.host == "ckandev.indiadataportal.com":
             return httpx.Response(200, content=pmgsy, headers={"content-type": "text/csv"})
         return httpx.Response(404)
@@ -34,12 +41,25 @@ def transport(awards=None):
     return httpx.MockTransport(handler)
 
 
+def mospi_pages(change=None):
+    from batchlight.infra.mospi import Page
+
+    pages = json.loads((FIX / "infra_mospi_flash_pages.json").read_text())
+    if change:
+        for word in pages[1]["words"]:
+            if word["text"] == change[0]:
+                word["text"] = change[1]
+    return [Page(**p) for p in pages]
+
+
 @pytest.fixture
-def ingested(db):
+def ingested(db, monkeypatch):
     from batchlight.db import session_factory
+    from batchlight.infra import mospi
     from batchlight.infra.sources import REGISTRY
     from batchlight.infra.store import run_infra_source
 
+    monkeypatch.setattr(mospi, "read_pages", lambda _bytes: mospi_pages())
     REGISTRY["infra-cag-reports"].pages = 1
     client = httpx.Client(transport=transport())
     runs = {sid: run_infra_source(session_factory(), adapter, client) for sid, adapter in REGISTRY.items()}
@@ -85,7 +105,7 @@ def test_a_changed_contract_price_is_recorded_as_a_change(db, ingested):
     assert run.updated == 1
     work = project(db, "IN-GUJARAT SPMU-469467-CW-RFB")
     change = next(e for e in work.events if e.kind == "change")
-    assert change.title == "Contract price changed: from 25,721,854.00 to 26,000,000.00"
+    assert change.title == "Contract price changed: from ₹2.57 crore to ₹2.60 crore"
 
 
 def test_passport_shows_sources_labels_and_missing_records(client, db, ingested):
@@ -170,3 +190,48 @@ def test_pmgsy_roads_become_passports_with_republished_labels_and_no_unconfirmed
     again = run_infra_source(session_factory(), REGISTRY["infra-pmgsy-roads"], httpx.Client(transport=transport()))
     assert (again.created, again.updated) == (0, 0)
     assert db.scalar(select(func.count()).select_from(InfraProject).where(InfraProject.source_id == "infra-pmgsy-roads")) == total
+
+
+def test_central_projects_from_mospi_show_official_figures_and_labelled_changes(client, db, ingested):
+    assert ingested["infra-mospi-central"].status == "succeeded"
+    vijayawada = project(db, "MOSPI-701107")
+    page = client.get(f"/infrastructure/projects/{vijayawada.id}").text
+    assert "Central project" in page and "Andhra Pradesh" in page and "Airport Authority of India [AAI]" in page
+    assert "₹611.80 crore" in page and "₹824.28 crore" in page and "₹618.57 crore" in page
+    assert "It has risen by ₹212.48 crore (35%) since approval." in page and "Moved later by 50 months." in page
+    assert "Calculated by us" in page and "Figures as of September 2026" in page
+    assert "Jun 2020" in page and "1 Jun 2020" not in page  # the report gives months, not days
+    assert "The report does not name contractors." in page
+    state = client.get("/infrastructure/states/andhra-pradesh").text
+    assert "Large central projects in Andhra Pradesh" in state
+    assert "Vijayawada" in client.get("/infrastructure/projects?level=project&q=Vijayawada").text
+    assert "central projects of ₹150 crore and above" in client.get("/infrastructure").text
+
+
+def test_a_revised_central_cost_is_recorded_as_a_change(db, ingested, monkeypatch):
+    from batchlight.db import session_factory
+    from batchlight.infra import mospi
+    from batchlight.infra.sources import REGISTRY
+    from batchlight.infra.store import run_infra_source
+
+    monkeypatch.setattr(mospi, "read_pages", lambda _bytes: mospi_pages(change=("(824.28)", "(900.00)")))
+    run = run_infra_source(session_factory(), REGISTRY["infra-mospi-central"], httpx.Client(transport=transport()))
+    assert run.updated >= 1
+    change = next(e for e in project(db, "MOSPI-701107").events if e.kind == "change")
+    assert change.title == "Total cost changed: from ₹824.28 crore to ₹900.00 crore"
+
+
+def test_contractor_directory_and_profile_use_only_official_records(client, db, ingested):
+    from sqlalchemy import select
+
+    from batchlight.models import InfraParty
+
+    directory = client.get("/infrastructure/contractors?q=Joseph").text
+    assert "Joseph Thomas" in directory and "not evidence of anything wrong" in directory
+    party = db.scalar(select(InfraParty).where(InfraParty.name == "Joseph Thomas"))
+    profile = client.get(f"/infrastructure/contractors/{party.id}").text
+    assert "Works awarded" in profile and "Kerala" in profile and "Maintenance: <strong>1</strong>" in profile
+    assert "about <strong>12.0 months</strong>" in profile and "Calculated by us" in profile
+    assert "It does not show whether any work was late" in profile
+    assert "Inspection grades, penalties, blacklisting and audit observations" in profile
+    assert client.get("/infrastructure/contractors?page=2").status_code == 200

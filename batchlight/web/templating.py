@@ -62,6 +62,10 @@ def fmt_datetime(value: datetime | None) -> str:
     return f"{value.day} {value:%b %Y, %H:%M} UTC"
 
 
+def fmt_month(value: date | datetime | None, missing: str = "Date not given") -> str:
+    return f"{value:%b %Y}" if value else missing
+
+
 def time_ago(value: datetime | None) -> str:
     if value is None:
         return "never"
@@ -108,7 +112,14 @@ def query(request: Request, **changes: Any) -> str:
 
 
 env.filters.update(
-    date=fmt_date, datetime=fmt_datetime, ago=time_ago, hours=fmt_hours, pct=fmt_pct, int=fmt_int, flag=country_flag
+    month=fmt_month,
+    date=fmt_date,
+    datetime=fmt_datetime,
+    ago=time_ago,
+    hours=fmt_hours,
+    pct=fmt_pct,
+    int=fmt_int,
+    flag=country_flag,
 )
 env.globals.update(
     source_kind=source_kind,

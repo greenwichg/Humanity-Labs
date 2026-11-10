@@ -145,3 +145,76 @@ def test_pmgsy_rows_for_one_road_merge_and_costs_stay_hidden():
     assert unfinished.actual_completion_on is None and unfinished.data["recorded_completion_date"] == "15-05-2017"
     nobody = map_pmgsy_road([r for r in rows if r["company_name"] in ("None", "")])
     assert nobody.contractors == []
+
+
+def mospi_pages():
+    from batchlight.infra.mospi import Page
+
+    return [Page(**p) for p in json.loads((FIX / "infra_mospi_flash_pages.json").read_text())]
+
+
+def test_mospi_flash_report_rows_are_read_by_column():
+    from batchlight.infra.mospi import parse_pages
+
+    month, _, projects = parse_pages(mospi_pages())
+    assert month == "September 2026" and len(projects) == 19
+    first = projects[0]
+    assert (first.serial, first.code, first.state_text) == (1, "612786", "Andhra Pradesh")
+    assert first.ministry == "Ministry of Civil Aviation" and first.sector == "Aviation & Aviation Infrastructure"
+    assert first.agency == "Airport Authority of India [AAI]"
+    assert (first.approval, first.doc_original, first.doc_revised) == ("03/2023", "01/2026", "09/2026")
+    assert (first.cost_original, first.cost_revised, first.expenditure, first.progress) == (265.91, 265.91, 191.35, 91.0)
+    assert len({p.code for p in projects}) == 19
+    assert all(p.name and not p.name.startswith("Ministry") for p in projects)  # headings never become project names
+    multi = next(p for p in projects if p.state_text and p.state_text.startswith("Multi-States"))
+    assert multi.code == "611570"
+
+
+def test_mospi_passport_figures_and_labelled_calculations():
+    from batchlight.infra.geo import find_regions
+    from batchlight.infra.mospi import map_mospi_project, months_between, parse_pages
+
+    _, _, projects = parse_pages(mospi_pages())
+    report = {"url": "https://www.mospi.gov.in/uploads/x.pdf", "published": "2026-10-26"}
+    vijayawada = map_mospi_project(next(p for p in projects if p.code == "701107"), report, "September 2026")
+    facts = {f[0]: f for f in vijayawada.data["extra_facts"]}
+    assert vijayawada.level == "project" and vijayawada.external_id == "MOSPI-701107"
+    assert facts["What was the approved (original) cost?"][1] == "₹611.80 crore"
+    assert facts["What is the revised cost?"][1] == "₹824.28 crore"
+    assert facts["How has the cost changed?"][1] == "It has risen by ₹212.48 crore (35%) since approval."
+    assert (
+        facts["How has the cost changed?"][2] == "calculated"
+        and "not, by itself, evidence of wrongdoing" in facts["How has the cost changed?"][3]
+    )
+    assert facts["How has the date changed?"][1] == "Moved later by 50 months." and months_between("09/2022", "11/2026") == 50
+    assert vijayawada.budget_amount == pytest.approx(824.28e7) and vijayawada.budget_currency == "INR"
+    assert vijayawada.promised_completion_on == date(2026, 11, 1) and vijayawada.data["month_precision"] is True
+    assert vijayawada.status == "Ongoing as of September 2026"
+    multi = map_mospi_project(next(p for p in projects if p.code == "611570"), report, "September 2026")
+    assert multi.state_slugs == find_regions("Karnataka Maharashtra Telangana Uttar Pradesh")
+
+
+def test_latest_flash_report_is_picked_from_the_publication_list():
+    import httpx
+
+    from batchlight.infra.mospi import latest_flash_report
+
+    items = [
+        {
+            "title": "<p>Monthly Flash Report on Infrastructure Projects worth Rs. 150 crore and above - August 2026</p>",
+            "published_year": "2026-09-25",
+            "file_one": {"path": "uploads/a.pdf"},
+        },
+        {"title": "<p>ASI 2024-2025 Volume I</p>", "published_year": "2026-11-04", "file_one": {"path": "uploads/asi.pdf"}},
+        {
+            "title": "<p>Monthly Flash Report on Infrastructure Projects worth Rs. 150 crore and above - September 2026</p>",
+            "published_year": "2026-10-26",
+            "file_one": {"path": "uploads/b.pdf"},
+        },
+    ]
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"data": items})))
+    assert latest_flash_report(client) == {
+        "title": "Monthly Flash Report on Infrastructure Projects worth Rs. 150 crore and above - September 2026",
+        "published": "2026-10-26",
+        "url": "https://www.mospi.gov.in/uploads/b.pdf",
+    }

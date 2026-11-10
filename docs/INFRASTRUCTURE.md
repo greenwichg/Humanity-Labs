@@ -7,7 +7,8 @@ It shares the web app, database, ingestion runs, worker and design system with t
 ## Rules
 
 - **Only published records.** Every answer on a passport comes from a named record and links to it. If a source does not publish something, the passport says "Not published" and why. We never estimate, average or guess a missing value.
-- **One calculation, labelled.** The only value we work out is the expected completion of a contracted work: award date plus the contract duration printed in the award notice. It is labelled "Calculated by us", with the working shown.
+- **Calculations are labelled.** We work out only simple things from official figures, each labelled "Calculated by us" with the working shown: a contracted work's expected completion (award date plus the duration in the notice), a central project's cost and date change since approval and its spending as a share of cost, and a contractor's typical time from award to completion.
+- **Months stay months.** MoSPI gives dates as months; passports show "Sep 2026", never an invented day.
 - **Planned financing close is not completion.** A World Bank programme's closing date is the end of the financing, and the page says so.
 - **No allegations.** A contract award, a passed date or a change in cost is not presented as wrongdoing. When a date has passed and no completion is recorded, the passport says that "alone does not show a delay". Rejected bidders are counted, never named. Contractors' addresses are not stored.
 - **Costs with no stated unit are held back.** The PMGSY dataset gives cost and spending figures without saying whether they are rupees, lakh or crore. They are kept in each record's `data` (`unconfirmed_unit_costs`) but never shown. Passports say why. Show them only after confirming the unit from PMGSY's own reports (see below).
@@ -20,6 +21,7 @@ It shares the web app, database, ingestion runs, worker and design system with t
 | `infra-wb-projects` | Every World Bank project in India: Board approval date, total cost, World Bank commitment, borrower, implementing agencies, status, planned closing date. Programmes that are not infrastructure are stored but hidden unless they have civil works. | daily |
 | `infra-wb-civil-works` | World Bank civil-works (CW) notices for India: tender invitations (date, deadline, tendering body) and contract awards (contractor, signed price, award date, duration, number of other bids evaluated or rejected). One passport per bid reference; a tender and its award merge. | every 12 hours |
 | `infra-pmgsy-roads` | PMGSY rural roads nationwide (about 169,000 roads in 30 states and UTs): state, district, block, habitations served, contractor, sanction year, award date, completion date (only for roads whose stage is Completed or Maintenance), length, surface and stage. Read from India Data Portal's copy of the Ministry of Rural Development's OMMAS data (Open Data Commons Attribution licence), and labelled "Official data, republished". | monthly |
+| `infra-mospi-central` | Every ongoing central sector infrastructure project of ₹150 crore and above (about 1,850 in the September 2026 report): ministry, sector, implementing agency, state, approval month, original and revised cost and completion date (₹ crore, as stated), cumulative expenditure and physical progress. The newest monthly Flash Report is found through MoSPI's publications API on www.mospi.gov.in and its "All Ongoing Projects" table is read by position (`batchlight/infra/mospi.py`). Cost and date changes since approval are shown as "Calculated by us". Monthly revisions become dated change events. | daily check, monthly report |
 | `infra-cag-reports` | Audit reports by the Comptroller and Auditor General whose title or sector covers public works, with their state. Shown on state pages; not linked to individual projects yet. | daily |
 
 States come from the record itself (state names in the bid reference, scope, project name or tendering body). A work that names no state takes it from its programme only when the programme covers exactly one state. Infrastructure type is our reading of the description and is labelled that way.
@@ -29,6 +31,7 @@ States come from the record itself (state names in the bid reference, scope, pro
 Listed on `/infrastructure/sources` (`NOT_CONNECTED` in `batchlight/infra/sources.py`):
 
 - **PMGSY's own portal (omms.nic.in)**: up-to-date records, quality monitors' grades and maintenance details. Could not be reached from our current servers; needs hosting in India. Its data is meanwhile read from India Data Portal's copy (`infra-pmgsy-roads`).
+- **MoSPI's PAIMANA portal**: the live system behind the monthly report; could not be reached from our servers. The monthly report is used instead.
 - **CPPP and state e-procurement portals**: tenders and award names, but no machine-readable listing and captcha-protected pages.
 - **MoSPI central project monitoring** (₹150 crore and above, original and revised cost and dates): website reachable; project-level data not located yet.
 - **MoRTH and NHAI**: national highways; not yet assessed.
@@ -54,6 +57,10 @@ python -m batchlight.cli infra-ingest --source infra-pmgsy-roads      # ~127 MB 
 ```
 
 The worker refreshes each source on its own interval after the medicine and food sources.
+
+## Contractor pages
+
+`/infrastructure/contractors` lists contractors named in official award records (World Bank contract awards and PMGSY road records), most works first, with search. Each profile shows works by source, stage of the works, states, award years, total signed contract value where notices state a price, and the typical (median) time from award to completion where both dates are recorded, labelled as our calculation. Names are matched as printed (`party_key` folds "M/s", "Pvt" and "Ltd" spellings), so profiles warn that a different firm may share a name. No penalties, blacklisting or inspection results are shown, because none of the connected sources publish them; they will appear only from an official record.
 
 ## Hosting ingestion in India
 

@@ -94,8 +94,13 @@ def facts(project: InfraProject, parent: InfraProject | None, today: date) -> li
             "Our reading of the description in the official record.",
         )
     )
-    for question, answer in data.get("extra_facts") or []:
-        rows.append(Fact(question, answer, ev, None, p.source_url))
+    for item in data.get("extra_facts") or []:
+        question, answer, *rest = item
+        rows.append(
+            Fact(question, answer, (rest[0] if rest and rest[0] else ev), rest[1] if len(rest) > 1 else None, p.source_url)
+        )
+    if p.level == "project":
+        return rows + project_rows(p)
     if p.status:
         rows.append(Fact("What stage is it at?", p.status, ev, "As recorded in the source.", p.source_url))
 
@@ -277,3 +282,19 @@ def facts(project: InfraProject, parent: InfraProject | None, today: date) -> li
             rows.append(Fact("Defect liability and maintenance", None, None, UNPUBLISHED["maintenance"]))
     rows.append(Fact("Current condition", None, None, UNPUBLISHED["condition"]))
     return rows
+
+
+def project_rows(p: InfraProject) -> list[Fact]:
+    """The rest of a central project's passport. Its figures come first, from ``extra_facts``."""
+    data = p.data or {}
+    as_of = f"as of {data['report_month']}" if data.get("report_month") else "in the latest report"
+    return [
+        Fact("What stage is it at?", f"Not yet completed: listed as ongoing {as_of}.", "official", None, p.source_url),
+        Fact("Who funded it?", None, None, "The report does not say how the project is funded."),
+        Fact("Which contractor is building it?", None, None, "The report does not name contractors."),
+        Fact("Inspections and quality tests", None, None, UNPUBLISHED["inspection"]),
+        Fact(
+            "Audit findings", None, None, "No audit finding is linked to this project yet. See the audit reports for its state."
+        ),
+        Fact("Current condition", None, None, UNPUBLISHED["condition"]),
+    ]

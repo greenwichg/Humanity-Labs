@@ -425,7 +425,7 @@ class TestingLab(Base):
 
 # --------------------------------------------------------------------------- public infrastructure
 
-INFRA_LEVELS = ("programme", "work")
+INFRA_LEVELS = ("programme", "work", "project")
 INFRA_EVIDENCE = ("official", "official_copy", "official_finding", "calculated", "report", "citizen")
 
 

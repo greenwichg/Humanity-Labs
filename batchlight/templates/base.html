@@ -52,7 +52,7 @@
     </div>
     {% if in_medicines or in_food or in_infra %}
     {% if in_infra %}
-      {% set subnav = [("/infrastructure", "Overview"), ("/infrastructure/projects", "Find a project"), ("/infrastructure/sources", "Sources and coverage")] %}
+      {% set subnav = [("/infrastructure", "Overview"), ("/infrastructure/projects", "Find a project"), ("/infrastructure/contractors", "Contractors"), ("/infrastructure/sources", "Sources and coverage")] %}
     {% elif in_food %}
       {% set subnav = [("/food", "Overview"), ("/food/recalls", "Recalls"), ("/food/reported", "What tests found"), ("/food/verify", "Check a product"), ("/food/testing", "Get food tested")] %}
     {% else %}
