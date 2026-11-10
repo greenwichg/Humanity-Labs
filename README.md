@@ -19,6 +19,7 @@ This repository started with a research exercise: 16 research agents investigate
 - [docs/PRODUCT.md](docs/PRODUCT.md): vision, personas, journeys, feature priorities, differentiation, outcomes and sustainability model
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture, data model, matching algorithm, API, security and scalability
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): configuration and deployment
+- [docs/AWS_DEPLOYMENT.md](docs/AWS_DEPLOYMENT.md): AWS with Terraform and GitHub Actions: setup, backups, recovery, teardown and costs
 - [docs/FOOD_SAFETY.md](docs/FOOD_SAFETY.md): the Food Safety module, its evidence policy and data coverage
 - [docs/INDIA_COVERAGE.md](docs/INDIA_COVERAGE.md): India coverage today, what is not covered, and operator actions
 - [docs/research/FOOD_SAFETY_EVIDENCE.md](docs/research/FOOD_SAFETY_EVIDENCE.md): graded, fact-checked research on food safety in India
@@ -95,6 +96,7 @@ batchlight/
 migrations/      Alembic schema migrations
 tests/           unit tests, integration tests and recorded regulator fixtures
 docs/            research, product, architecture and deployment documents
+infra/           Terraform for AWS (bootstrap, platform, app) and deployment scripts
 ```
 
 ## Data sources and licences

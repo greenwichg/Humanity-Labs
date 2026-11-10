@@ -50,6 +50,8 @@ Put a reverse proxy such as Caddy or nginx in front of port 8000 for HTTPS. Back
 
 ## Option 2: A container platform (Render, Fly.io, Railway, Cloud Run, ECS)
 
+For AWS there is a ready-made setup: Terraform in `infra/terraform` and GitHub Actions workflows for provisioning, updates, backups, restores and teardown. See [AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md). The steps below are for other platforms.
+
 1. Build and push the image: `docker build -t registry.example.org/batchlight:<version> .`
 2. Create a managed PostgreSQL database.
 3. Create a **web service** from the image with command `web`, port `8000`, health check path `/readyz`.

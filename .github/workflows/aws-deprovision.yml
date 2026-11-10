@@ -1,0 +1,120 @@
+# Safe deprovisioning. Needs approval in the "production" environment and a typed confirmation.
+#   app (default): removes the load balancer, ECS services and tasks. The database, its backups, secrets, images
+#                  and logs stay, so "AWS provision" brings the site back with all data.
+#   everything-except-backups: also removes the network, database, secrets, images and logs. The database is
+#                  deleted only after a fresh snapshot, RDS takes a final snapshot, and automated backups are kept
+#                  for their retention period. Snapshots are never deleted by this workflow.
+name: AWS deprovision
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: What to remove
+        type: choice
+        options: [app, everything-except-backups]
+        default: app
+      confirm:
+        description: "Type: deprovision production"
+        type: string
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: aws-production
+  cancel-in-progress: false
+
+jobs:
+  deprovision:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 120
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+      PROJECT: ${{ vars.PROJECT || 'humanity-labs' }}
+      SCOPE: ${{ inputs.scope }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_aws_region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+      TF_VAR_project: ${{ vars.PROJECT || 'humanity-labs' }}
+      TF_VAR_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+      TF_VAR_db_identifier: ${{ vars.DB_IDENTIFIER }}
+      DB: ${{ vars.DB_IDENTIFIER || format('{0}-db', vars.PROJECT || 'humanity-labs') }}
+      TF_VAR_image_tag: unused-on-destroy
+      TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+      TF_VAR_certificate_arn: ${{ vars.CERTIFICATE_ARN }}
+    steps:
+      - name: Check the confirmation
+        if: inputs.confirm != 'deprovision production'
+        run: |
+          echo "::error::Type exactly: deprovision production"
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deprovision-${{ github.run_id }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+
+      - name: Check that only the managed database uses the network
+        if: inputs.scope == 'everything-except-backups'
+        run: |
+          others=$(aws rds describe-db-instances \
+            --query "DBInstances[?DBSubnetGroup.DBSubnetGroupName=='${PROJECT}-db' && DBInstanceIdentifier!='${DB}'].DBInstanceIdentifier" \
+            --output text)
+          if [ -n "$others" ]; then
+            echo "::error::These databases (restores?) still use the network: ${others}. Adopt or delete them first (docs/AWS_DEPLOYMENT.md). Nothing was changed."
+            exit 1
+          fi
+
+      - name: Snapshot the database first
+        run: |
+          if aws rds describe-db-instances --db-instance-identifier "$DB" >/dev/null 2>&1; then
+            SNAPSHOT="${PROJECT}-predeprovision-$(date -u +%Y%m%d-%H%M)"
+            aws rds create-db-snapshot --db-instance-identifier "$DB" --db-snapshot-identifier "$SNAPSHOT" \
+              --tags Key=created-by,Value=github-deprovision Key=project,Value="$PROJECT"
+            aws rds wait db-snapshot-available --db-snapshot-identifier "$SNAPSHOT"
+            echo "### Snapshot ${SNAPSHOT} taken before deprovisioning" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No database $DB found; nothing to snapshot."
+          fi
+
+      - name: Remove the app layer
+        working-directory: infra/terraform/app
+        run: |
+          terraform init -backend-config="bucket=${TF_VAR_state_bucket}" -backend-config="region=${AWS_REGION}"
+          terraform destroy -auto-approve
+          echo "- App layer removed (load balancer, ECS services)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the platform layer, keeping backups
+        if: inputs.scope == 'everything-except-backups'
+        working-directory: infra/terraform/platform
+        run: |
+          FINAL="${PROJECT}-final-$(date -u +%Y%m%d-%H%M)"
+          export TF_VAR_final_snapshot_identifier="$FINAL" TF_VAR_deletion_protection=false TF_VAR_allow_destroy_images=true
+          terraform init -backend-config="bucket=${TF_VAR_state_bucket}" -backend-config="region=${AWS_REGION}"
+          # Turning off deletion protection is an in-place change; check that nothing else is replaced on the way.
+          terraform plan -out=unprotect.tfplan
+          terraform show -json unprotect.tfplan | python3 ../../scripts/plan_guard.py
+          terraform apply unprotect.tfplan
+          terraform destroy -auto-approve
+          {
+            echo "- Platform layer removed. RDS final snapshot: ${FINAL}."
+            echo "- Automated backups are kept for their retention period; manual snapshots are kept until you delete them."
+            echo "- To rebuild with the data, run **AWS provision** with restore_snapshot = ${FINAL}."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: List the backups that remain
+        run: |
+          aws rds describe-db-snapshots --snapshot-type manual \
+            --query "DBSnapshots[?starts_with(DBSnapshotIdentifier, '${PROJECT}-')].[DBSnapshotIdentifier,SnapshotCreateTime,Status]" --output table

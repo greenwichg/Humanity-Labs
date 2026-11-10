@@ -26,6 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser(
         "seed-india", aliases=["seed-food-india"], help="load the hand-checked Indian medicine and food alerts (idempotent)"
     )
+    sub.add_parser("db-check", help="read-only: print the schema revision and row counts (used to verify restores)")
     infra = sub.add_parser("infra-ingest", help="refresh public infrastructure sources now")
     infra.add_argument("--source", action="append", help="infra-wb-projects, infra-wb-civil-works or infra-cag-reports")
     infra.add_argument("--cag-pages", type=int, default=None, help="how many pages of the CAG report list to read")
@@ -49,6 +50,18 @@ def main(argv: list[str] | None = None) -> int:
         with session_scope() as session:
             created, updated, matched = seed_india_alerts(session)
         print(f"Indian alerts: {created} created, {updated} updated, {matched} new stock matches")
+        return 0
+    if args.command == "db-check":
+        import json
+
+        from sqlalchemy import text
+
+        tables = ("users", "organizations", "alerts", "matches", "food_reports", "infra_projects", "infra_parties")
+        with session_scope() as session:
+            revision = session.execute(text("SELECT version_num FROM alembic_version")).scalar()
+            counts = {t: session.execute(text(f"SELECT count(*) FROM {t}")).scalar() for t in tables}  # noqa: S608 - fixed names
+            server = session.execute(text("SHOW server_version")).scalar()
+        print(json.dumps({"revision": revision, "server_version": server, "rows": counts}))
         return 0
     if args.command == "infra-ingest":
         from .db import session_factory

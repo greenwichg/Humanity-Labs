@@ -1,0 +1,187 @@
+# Shared deployment steps, called by aws-provision.yml and aws-deploy.yml.
+# Runs in the protected "production" environment, so a reviewer must approve before anything changes in AWS.
+name: AWS deploy (shared steps)
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git commit to deploy
+        type: string
+        required: true
+      seed:
+        description: Load the hand-checked Indian alerts after migrating (safe to repeat)
+        type: boolean
+        default: false
+      restore_snapshot:
+        description: Create the database from this snapshot if it does not exist yet
+        type: string
+        default: ""
+      allow_data_deletion:
+        description: Let a plan delete or replace the database, secrets or image repository
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: aws-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  PROJECT: ${{ vars.PROJECT || 'humanity-labs' }}
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_VAR_aws_region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  TF_VAR_project: ${{ vars.PROJECT || 'humanity-labs' }}
+  TF_VAR_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+  TF_VAR_db_identifier: ${{ vars.DB_IDENTIFIER }}
+  TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+  TF_VAR_certificate_arn: ${{ vars.CERTIFICATE_ARN }}
+  TF_VAR_email_backend: ${{ vars.EMAIL_BACKEND || 'console' }}
+  TF_VAR_email_from: ${{ vars.EMAIL_FROM || 'Humanity Labs <alerts@example.org>' }}
+  TF_VAR_smtp_host: ${{ vars.SMTP_HOST }}
+  TF_VAR_smtp_username: ${{ vars.SMTP_USERNAME }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Check repository variables
+        run: |
+          if [ -z "$AWS_DEPLOY_ROLE_ARN" ]; then echo "::error::Set the repository variable AWS_DEPLOY_ROLE_ARN (see docs/AWS_DEPLOYMENT.md)"; exit 1; fi
+          if [ -z "$TF_STATE_BUCKET" ]; then echo "::error::Set the repository variable TF_STATE_BUCKET (see docs/AWS_DEPLOYMENT.md)"; exit 1; fi
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deploy-${{ github.run_id }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+
+      # ------------------------------------------------------------ persistent layer (network, database, secrets)
+      - name: Plan platform
+        working-directory: infra/terraform/platform
+        env:
+          RESTORE_SNAPSHOT: ${{ inputs.restore_snapshot }}
+        run: |
+          terraform init -backend-config="bucket=${TF_VAR_state_bucket}" -backend-config="region=${AWS_REGION}"
+          if [ -n "${RESTORE_SNAPSHOT}" ]; then
+            export TF_VAR_restore_snapshot_identifier="${RESTORE_SNAPSHOT}"
+            echo "Creating the database from snapshot ${RESTORE_SNAPSHOT} if it does not exist yet"
+          fi
+          terraform plan -out=platform.tfplan
+          terraform show -json platform.tfplan > platform.json
+
+      - name: Guard against data loss
+        env:
+          ALLOW_DATA_DELETION: ${{ inputs.allow_data_deletion }}
+        run: python3 infra/scripts/plan_guard.py < infra/terraform/platform/platform.json
+
+      - name: Apply platform
+        working-directory: infra/terraform/platform
+        run: |
+          terraform apply platform.tfplan
+          terraform output -json > ../platform-outputs.json
+
+      - name: Read platform outputs
+        id: platform
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          out = json.load(open("infra/terraform/platform-outputs.json"))
+          for key in ("ecr_repository_url", "ecr_repository_name", "log_group_name", "db_identifier"):
+              print(f"{key}={out[key]['value']}")
+          PY
+
+      # ------------------------------------------------------------ container image
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push the image (skipped if this commit is already built)
+        id: image
+        env:
+          REPO_URL: ${{ steps.platform.outputs.ecr_repository_url }}
+          REPO_NAME: ${{ steps.platform.outputs.ecr_repository_name }}
+          TAG: ${{ inputs.ref }}
+        run: |
+          if aws ecr describe-images --repository-name "$REPO_NAME" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "Image $TAG already in ECR"
+          else
+            docker build --platform linux/amd64 -t "$REPO_URL:$TAG" .
+            docker push "$REPO_URL:$TAG"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------ app layer, migrations first
+      - name: Prepare app stack and the one-off task definition
+        working-directory: infra/terraform/app
+        env:
+          TF_VAR_image_tag: ${{ steps.image.outputs.tag }}
+        run: |
+          terraform init -backend-config="bucket=${TF_VAR_state_bucket}" -backend-config="region=${AWS_REGION}"
+          terraform apply -auto-approve -target=aws_ecs_cluster.main -target=aws_ecs_task_definition.cli
+          {
+            echo "CLUSTER=$(terraform output -raw cluster_name)"
+            echo "TASK_DEFINITION=$(terraform output -raw cli_task_definition)"
+            echo "SUBNETS=$(terraform output -json subnet_ids | python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)))')"
+            echo "SECURITY_GROUP=$(terraform output -raw app_security_group_id)"
+            echo "LOG_GROUP=${{ steps.platform.outputs.log_group_name }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Run database migrations
+        run: infra/scripts/run-task.sh migrate
+
+      - name: Load hand-checked Indian alerts
+        if: inputs.seed
+        run: infra/scripts/run-task.sh python -m batchlight.cli seed-india
+
+      - name: Apply app stack (web, worker, load balancer)
+        working-directory: infra/terraform/app
+        env:
+          TF_VAR_image_tag: ${{ steps.image.outputs.tag }}
+        run: |
+          terraform plan -out=app.tfplan
+          terraform apply app.tfplan
+          echo "BASE_URL=$(terraform output -raw base_url)" >> "$GITHUB_ENV"
+          echo "ALB=$(terraform output -raw load_balancer_dns_name)" >> "$GITHUB_ENV"
+
+      - name: Wait for the services to settle
+        run: aws ecs wait services-stable --cluster "$CLUSTER" --services web worker
+
+      - name: Smoke test
+        run: |
+          for path in /healthz /readyz /; do
+            ok=""
+            for _ in $(seq 1 12); do
+              if curl -fsS --max-time 10 "${BASE_URL}${path}" -o /dev/null || curl -fsSk --max-time 10 "https://${ALB}${path}" -o /dev/null || curl -fsS --max-time 10 "http://${ALB}${path}" -o /dev/null; then ok=1; break; fi
+              sleep 10
+            done
+            if [ -z "$ok" ]; then echo "::error::${path} did not answer"; exit 1; fi
+            echo "${path} answered"
+          done
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed ${{ steps.image.outputs.tag }}"
+            echo "- Site: ${BASE_URL}"
+            echo "- Load balancer: ${ALB}"
+            echo "- Database: ${{ steps.platform.outputs.db_identifier }}"
+          } >> "$GITHUB_STEP_SUMMARY"

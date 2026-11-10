@@ -1,0 +1,27 @@
+# Initial provisioning and deployment. Run once after the bootstrap step in docs/AWS_DEPLOYMENT.md,
+# and again to rebuild after a teardown (give the final snapshot to bring the data back).
+name: AWS provision
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Load the hand-checked Indian alerts (safe to repeat)
+        type: boolean
+        default: true
+      restore_snapshot:
+        description: Optional. Create the database from this RDS snapshot (for example the final snapshot after a teardown)
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  provision:
+    uses: ./.github/workflows/aws-deploy-core.yml
+    with:
+      ref: ${{ github.sha }}
+      seed: ${{ inputs.seed }}
+      restore_snapshot: ${{ inputs.restore_snapshot }}

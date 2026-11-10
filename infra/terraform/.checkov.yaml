@@ -1,0 +1,35 @@
+# Checkov findings accepted on purpose. Each is explained in docs/AWS_DEPLOYMENT.md ("Security scan").
+framework: [terraform]
+quiet: true
+compact: true
+skip-check:
+  - CKV_AWS_333   # tasks get public IPs for outbound access instead of a NAT gateway (~$35/month); ingress is load balancer only
+  - CKV_AWS_260   # port 80 must be open to redirect to HTTPS
+  - CKV_AWS_2     # HTTP listener exists only until a certificate is configured
+  - CKV_AWS_378   # same
+  - CKV_AWS_103   # same; the HTTPS listener uses ELBSecurityPolicy-TLS13-1-2-2021-06
+  - CKV2_AWS_20   # same
+  - CKV2_AWS_28   # WAF is optional (from about $5/month); see the hardening list
+  - CKV_AWS_91    # load balancer access logs are optional (S3 cost)
+  - CKV_AWS_150   # the app layer is disposable by design; the database has deletion protection
+  - CKV_AWS_157   # Multi-AZ doubles database cost; variable db_multi_az turns it on
+  - CKV_AWS_118   # enhanced monitoring adds CloudWatch cost
+  - CKV_AWS_353   # Performance Insights: optional
+  - CKV_AWS_65    # Container Insights adds CloudWatch cost
+  - CKV_AWS_149   # secrets use the AWS-managed key; a customer key costs $1/month each
+  - CKV_AWS_158   # logs: AWS-managed encryption
+  - CKV_AWS_136   # ECR: AES-256 encryption
+  - CKV_AWS_145   # state bucket: SSE-S3 encryption
+  - CKV2_AWS_57   # rotating the database password needs a coordinated app restart; documented as a manual step
+  - CKV_AWS_338   # logs are kept 30 days to limit cost
+  - CKV2_AWS_11   # VPC flow logs are optional (CloudWatch cost)
+  - CKV_AWS_18    # state bucket access logging: optional
+  - CKV_AWS_144   # state bucket cross-region replication: optional
+  - CKV2_AWS_62   # state bucket event notifications: not needed
+  - CKV_AWS_394   # two zones are picked from the region's available zones at creation time
+  - CKV2_AWS_5    # the app security group is attached by the app stack (separate state)
+  - CKV_AWS_107   # deploy role manages the whole stack; it is usable only from approved runs of this repository
+  - CKV_AWS_108   # same
+  - CKV_AWS_109   # same
+  - CKV_AWS_111   # same
+  - CKV_AWS_356   # same

@@ -1,0 +1,15 @@
+output "vpc_id" { value = aws_vpc.main.id }
+output "public_subnet_ids" { value = aws_subnet.public[*].id }
+output "app_security_group_id" { value = aws_security_group.app.id }
+output "db_security_group_id" { value = aws_security_group.db.id }
+output "db_subnet_group_name" { value = aws_db_subnet_group.main.name }
+output "db_parameter_group_name" { value = aws_db_parameter_group.main.name }
+output "db_identifier" { value = aws_db_instance.main.identifier }
+output "db_address" { value = aws_db_instance.main.address }
+output "db_instance_class" { value = aws_db_instance.main.instance_class }
+output "ecr_repository_url" { value = aws_ecr_repository.app.repository_url }
+output "ecr_repository_name" { value = aws_ecr_repository.app.name }
+output "log_group_name" { value = aws_cloudwatch_log_group.app.name }
+output "database_url_secret_arn" { value = aws_secretsmanager_secret.database_url.arn }
+output "app_secret_key_arn" { value = aws_secretsmanager_secret.app_secret_key.arn }
+output "smtp_password_secret_arn" { value = aws_secretsmanager_secret.smtp_password.arn }

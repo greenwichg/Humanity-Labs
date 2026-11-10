@@ -1,0 +1,151 @@
+# Restore the database to a NEW instance, check it, and optionally switch the app to it.
+# The current database is never modified or deleted. Needs approval in the "production" environment.
+name: AWS restore
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Snapshot name, 'latest' (newest snapshot), or a UTC time like 2026-11-10T03:00:00Z for point-in-time recovery"
+        type: string
+        required: true
+        default: latest
+      mode:
+        description: "verify: restore and check only. promote: also point the app at the restored database"
+        type: choice
+        options: [verify, promote]
+        default: verify
+      confirm:
+        description: "For promote, type: promote restored database"
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: aws-production
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 180
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+      PROJECT: ${{ vars.PROJECT || 'humanity-labs' }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      SOURCE: ${{ inputs.source }}
+      MODE: ${{ inputs.mode }}
+    steps:
+      - name: Check the confirmation
+        if: inputs.mode == 'promote' && inputs.confirm != 'promote restored database'
+        run: |
+          echo "::error::To promote, type exactly: promote restored database"
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: restore-${{ github.run_id }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+
+      - name: Read the current setup
+        run: |
+          for stack in platform app; do
+            (cd "infra/terraform/$stack" && terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${AWS_REGION}" >/dev/null && terraform output -json > "../$stack-outputs.json")
+          done
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json
+          p = json.load(open("infra/terraform/platform-outputs.json"))
+          a = json.load(open("infra/terraform/app-outputs.json"))
+          print(f"DB={p['db_identifier']['value']}")
+          print(f"DB_SUBNET_GROUP={p['db_subnet_group_name']['value']}")
+          print(f"DB_SECURITY_GROUP={p['db_security_group_id']['value']}")
+          print(f"DB_PARAMETER_GROUP={p['db_parameter_group_name']['value']}")
+          print(f"DB_CLASS={p['db_instance_class']['value']}")
+          print(f"DB_URL_SECRET={p['database_url_secret_arn']['value']}")
+          print(f"LOG_GROUP={p['log_group_name']['value']}")
+          print(f"CLUSTER={a['cluster_name']['value']}")
+          print(f"TASK_DEFINITION={a['cli_task_definition']['value']}")
+          print(f"SUBNETS={','.join(a['subnet_ids']['value'])}")
+          print(f"SECURITY_GROUP={a['app_security_group_id']['value']}")
+          PY
+
+      - name: Restore to a new database instance
+        run: |
+          TARGET="${PROJECT}-restore-$(date -u +%Y%m%d-%H%M)"
+          # shellcheck disable=SC2054 # the commas belong inside the --tags values
+          common=(--db-instance-identifier "$TARGET" --db-subnet-group-name "$DB_SUBNET_GROUP"
+                  --vpc-security-group-ids "$DB_SECURITY_GROUP" --db-parameter-group-name "$DB_PARAMETER_GROUP"
+                  --db-instance-class "$DB_CLASS" --no-publicly-accessible --no-multi-az --deletion-protection
+                  --copy-tags-to-snapshot --tags Key=created-by,Value=github-restore Key=project,Value="$PROJECT")
+          if [[ "$SOURCE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T ]]; then
+            echo "Point-in-time recovery of $DB to $SOURCE"
+            aws rds restore-db-instance-to-point-in-time --source-db-instance-identifier "$DB" --restore-time "$SOURCE" "${common[@]/--db-instance-identifier/--target-db-instance-identifier}" >/dev/null
+          else
+            SNAP="$SOURCE"
+            if [ "$SOURCE" = "latest" ]; then
+              SNAP=$(aws rds describe-db-snapshots --db-instance-identifier "$DB" \
+                --query "reverse(sort_by(DBSnapshots[?Status=='available'], &SnapshotCreateTime))[0].DBSnapshotIdentifier" --output text)
+            fi
+            if [ -z "$SNAP" ] || [ "$SNAP" = "None" ]; then echo "::error::No available snapshot found"; exit 1; fi
+            echo "Restoring snapshot $SNAP"
+            aws rds restore-db-instance-from-db-snapshot --db-snapshot-identifier "$SNAP" "${common[@]}" >/dev/null
+          fi
+          aws rds wait db-instance-available --db-instance-identifier "$TARGET"
+          ARN=$(aws rds describe-db-instances --db-instance-identifier "$TARGET" --query 'DBInstances[0].DBInstanceArn' --output text)
+          # A restored copy is not backed up until it is promoted (tags can be copied from the snapshot).
+          aws rds remove-tags-from-resource --resource-name "$ARN" --tag-keys backup
+          echo "ARN=$ARN" >> "$GITHUB_ENV"
+          ADDRESS=$(aws rds describe-db-instances --db-instance-identifier "$TARGET" --query 'DBInstances[0].Endpoint.Address' --output text)
+          echo "TARGET=$TARGET" >> "$GITHUB_ENV"
+          echo "ADDRESS=$ADDRESS" >> "$GITHUB_ENV"
+
+      - name: Check the restored data (read-only)
+        run: DB_HOST_OVERRIDE="$ADDRESS" infra/scripts/run-task.sh python -m batchlight.cli db-check
+
+      - name: Point the app at the restored database
+        if: inputs.mode == 'promote'
+        run: |
+          # Same backups as the managed database: 7 days of point-in-time recovery and the daily snapshots.
+          aws rds modify-db-instance --db-instance-identifier "$TARGET" --backup-retention-period 7 \
+            --preferred-backup-window 20:00-20:30 --apply-immediately >/dev/null
+          aws rds add-tags-to-resource --resource-name "$ARN" --tags Key=backup,Value=daily
+          aws rds wait db-instance-available --db-instance-identifier "$TARGET"
+          aws secretsmanager get-secret-value --secret-id "$DB_URL_SECRET" --query SecretString --output text > current-url
+          python3 - "$ADDRESS" <<'PY' > new-url
+          import sys
+          from urllib.parse import urlsplit, urlunsplit
+          url = urlsplit(open("current-url").read().strip())
+          userinfo = url.netloc.rpartition("@")[0]
+          print(urlunsplit(url._replace(netloc=f"{userinfo}@{sys.argv[1]}:{url.port or 5432}")), end="")
+          PY
+          aws secretsmanager put-secret-value --secret-id "$DB_URL_SECRET" --secret-string file://new-url >/dev/null
+          rm -f current-url new-url
+          aws ecs update-service --cluster "$CLUSTER" --service web --force-new-deployment >/dev/null
+          aws ecs update-service --cluster "$CLUSTER" --service worker --force-new-deployment >/dev/null
+          aws ecs wait services-stable --cluster "$CLUSTER" --services web worker
+
+      - name: Summary
+        run: |
+          {
+            echo "### Restored to ${TARGET}"
+            echo "- Source: ${SOURCE}"
+            echo "- Endpoint: ${ADDRESS}"
+            if [ "$MODE" = "promote" ]; then
+              echo "- The app now uses ${TARGET}. The previous database ${DB} is untouched; see docs/AWS_DEPLOYMENT.md before removing it."
+            else
+              echo "- The app still uses ${DB}. ${TARGET} has deletion protection and costs money while it runs; delete it when you have checked it (see docs/AWS_DEPLOYMENT.md)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -10,3 +10,10 @@ htmlcov/
 test-results/
 playwright-report/
 *.log
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan*
+crash.log

@@ -48,3 +48,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t batchlight:ci .
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+      - name: Terraform format
+        run: terraform fmt -check -recursive infra/terraform
+      - name: Terraform validate (no AWS access needed)
+        run: |
+          for stack in bootstrap platform app; do
+            terraform -chdir="infra/terraform/$stack" init -backend=false -input=false >/dev/null
+            terraform -chdir="infra/terraform/$stack" validate
+          done
+      - name: Security scan (accepted findings are listed in infra/terraform/.checkov.yaml)
+        run: pipx run checkov==3.4.3 -d infra/terraform --config-file infra/terraform/.checkov.yaml
