@@ -45,3 +45,9 @@ variable "monthly_budget_usd" {
   type        = number
   default     = 100
 }
+
+variable "domain_name" {
+  description = "Production domain registered in Route 53 in this account. The deploy role may change only its own records in that hosted zone. Empty: no DNS permissions."
+  type        = string
+  default     = "humanitylabs.in"
+}

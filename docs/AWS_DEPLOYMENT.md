@@ -2,7 +2,7 @@
 
 This guide covers the Terraform setup in `infra/terraform` and the GitHub Actions workflows that provision, update, back up, restore and tear down the site on AWS. The general application settings are in [DEPLOYMENT.md](DEPLOYMENT.md).
 
-**In short:** one small web container and one worker container on ECS Fargate (ARM64/Graviton) behind an Application Load Balancer and AWS WAF, with Amazon RDS for PostgreSQL in private subnets, in the Mumbai region (`ap-south-1`). It costs about **$76–82 a month** at low traffic, before tax, or about $67–71 without WAF ([estimate](#estimated-monthly-cost)). Every workflow that changes AWS waits for your approval. Database backups survive every teardown option.
+**In short:** the site runs at **https://humanitylabs.in** (`www` redirects there). It is one small web container and one worker container on ECS Fargate (ARM64/Graviton), behind AWS WAF and an Application Load Balancer, with Amazon RDS for PostgreSQL in private subnets, in the Mumbai region (`ap-south-1`). It costs about **$77–82 a month** at low traffic, before tax, or about $67–72 without WAF ([estimate](#estimated-monthly-cost)). Every workflow that changes AWS waits for your approval. Database backups survive every teardown option.
 
 ## What the application needs
 
@@ -39,6 +39,8 @@ The default instance is **db.t4g.micro** (2 vCPU burstable, 1 GiB memory, Single
 ## Architecture
 
 ```
+humanitylabs.in, www.humanitylabs.in ──► Route 53 (alias records)
+                 ▼
 Internet ──► AWS WAF (rate limit per address, AWS managed rules)
                  ▼
            Application Load Balancer (public subnets, ports 80/443)
@@ -49,6 +51,7 @@ Internet ──► AWS WAF (rate limit per address, AWS managed rules)
                  ▼
            RDS PostgreSQL 16 (private subnets, no internet route, TLS only, encrypted)
 Secrets Manager: database URL, app secret key, SMTP password      ECR: images      CloudWatch Logs: 30 days
+ACM: certificate for humanitylabs.in and www.humanitylabs.in (DNS-validated, renewed automatically)
 ```
 
 Terraform is split into three stacks so the disposable parts can be removed without touching data:
@@ -56,8 +59,8 @@ Terraform is split into three stacks so the disposable parts can be removed with
 | Stack | Holds | State | Removed by |
 |---|---|---|---|
 | `infra/terraform/bootstrap` | S3 bucket for Terraform state (versioned, encrypted, TLS only), GitHub OIDC provider, two IAM roles for GitHub Actions and the permissions boundary for roles they create, the alert topic and a monthly cost budget | Local file in that folder (run by hand) | Never by a workflow |
-| `infra/terraform/platform` | VPC and subnets, security groups, **RDS database**, secrets, ECR repository, log groups | S3 `platform/terraform.tfstate` | Only "AWS deprovision" with scope `everything-except-backups` |
-| `infra/terraform/app` | ECS cluster, task definitions, web and worker services, load balancer, HTTPS listener | S3 `app/terraform.tfstate` | "AWS deprovision" (either scope) |
+| `infra/terraform/platform` | VPC and subnets, security groups, **RDS database**, secrets, ECR repository, log groups, the ACM certificate and its validation records | S3 `platform/terraform.tfstate` | Only "AWS deprovision" with scope `everything-except-backups` |
+| `infra/terraform/app` | ECS cluster, task definitions, web and worker services, load balancer, HTTPS listener and redirects, WAF, the DNS records for the domain and `www` | S3 `app/terraform.tfstate` | "AWS deprovision" (either scope) |
 
 Security choices:
 
@@ -67,6 +70,8 @@ Security choices:
   - it can attach only the ECS task execution policy, pass roles only to ECS tasks, and cannot change its own role or the backup role;
   - it can read only this project's secrets;
   - explicit denies stop it from deleting or sharing snapshots, deleting retained automated backups, exporting snapshots, or sharing secrets, images or logs with another account.
+
+  - in DNS it may change only the records it manages (the domain, `www` and certificate validation) in the domain's hosted zone, so it cannot touch mail or other records.
 
   It still has broad EC2, RDS and load-balancer rights, so **use an AWS account dedicated to this site** (for example a member account in AWS Organizations), not one shared with other systems.
 - **No exposed database.** The database has no public address, and its security group admits port 5432 only from the app's security group.
@@ -84,7 +89,7 @@ Security choices:
 
 You need:
 
-- an AWS account dedicated to this site;
+- an AWS account dedicated to this site, which holds the `humanitylabs.in` domain registration in Route 53 (see [The domain](#4-the-domain-humanitylabsin) if the domain is in a different account);
 - AWS CLI v2 signed in as an administrator of that account, on your own machine;
 - Terraform 1.10 or newer (the workflows use 1.17.1);
 - the GitHub CLI (`gh`) signed in as an admin of the repository.
@@ -95,13 +100,13 @@ You need:
 infra/scripts/bootstrap.sh --alert-email you@example.org     # optional: --region ap-south-1 --budget 100
 ```
 
-It asks you to type the AWS account ID to confirm the account. Then it:
+It asks you to type the AWS account ID to confirm the account, and checks that the `humanitylabs.in` hosted zone is in that account (`--domain` changes the domain). Then it:
 
 1. protects the `production` environment (you as required reviewer, `main` only) and checks that the protection is in place;
 2. runs the bootstrap stack (Terraform shows its plan and asks before changing anything);
-3. sets `AWS_REGION`, `TF_STATE_BUCKET` and `AWS_BACKUP_ROLE_ARN`, then `AWS_DEPLOY_ROLE_ARN` last, which switches on deploys.
+3. sets `AWS_REGION`, `DOMAIN_NAME`, `TF_STATE_BUCKET` and `AWS_BACKUP_ROLE_ARN`, then `AWS_DEPLOY_ROLE_ARN` last, which switches on deploys.
 
-It stops before changing anything if the account ID doesn't match or you aren't a repository admin. It is safe to run again. The manual equivalent follows.
+It stops before changing anything if the account ID doesn't match, the hosted zone is missing, or you aren't a repository admin. It is safe to run again. The manual equivalent follows.
 
 ### 1. Bootstrap (from your machine, once)
 
@@ -140,7 +145,7 @@ terraform output         # note state_bucket, deploy_role_arn, backup_role_arn
 | `TF_STATE_BUCKET` | `state_bucket` from step 1 | yes |
 | `AWS_REGION` | default `ap-south-1` | no |
 | `PROJECT` | default `humanity-labs` (names every resource) | no |
-| `DOMAIN_NAME`, `CERTIFICATE_ARN` | your domain and its ACM certificate (step 4) | for HTTPS |
+| `DOMAIN_NAME` | default `humanitylabs.in`; set only to use another domain registered in Route 53 in the same account | no |
 | `EMAIL_BACKEND`, `EMAIL_FROM`, `SMTP_HOST`, `SMTP_USERNAME` | step 5 | for email |
 | `CPU_ARCHITECTURE` | default `ARM64` (Graviton); set `X86_64` to switch back | no |
 | `DB_IDENTIFIER` | leave unset; only for [adopting a restored database](#adopt-a-promoted-database-into-terraform) | no |
@@ -159,7 +164,9 @@ The workflow:
 4. Starts the web and worker services and waits for them to settle.
 5. Checks `/healthz`, `/readyz` and `/`.
 
-RDS creation alone usually takes several minutes. The run summary shows the site address, which is the load balancer's `*.elb.amazonaws.com` name until you add a domain.
+RDS creation alone usually takes several minutes. On the first run, Terraform also requests the certificate and waits for ACM to issue it, usually a few minutes. The run summary shows the site address, https://humanitylabs.in.
+
+The smoke test connects straight to the load balancer while presenting the real host name, so it checks the certificate even before DNS has spread. It also checks that `www` and plain HTTP redirect to `https://humanitylabs.in` with a 301.
 
 Then:
 
@@ -167,14 +174,46 @@ Then:
 2. Make yourself a curator by [running a command in AWS](#run-a-command-in-aws): `infra/scripts/run-task.sh python -m batchlight.cli make-curator you@example.org`
 3. Follow the remaining steps in [DEPLOYMENT.md → After the first deploy](DEPLOYMENT.md#after-the-first-deploy). The worker refreshes all sources on its schedule; `python -m batchlight.cli infra-ingest` starts the public-works import immediately.
 
-> Until step 4 is done the site is plain HTTP and login cookies are not marked Secure. Do not invite real users before HTTPS is on.
+> The site is HTTPS-only from the first deploy, with Secure cookies and HSTS. Do not invite real users before email works (step 5).
 
-### 4. HTTPS and your domain (manual)
+### 4. The domain (humanitylabs.in)
 
-1. In AWS Certificate Manager, in the **same region** (`ap-south-1`), request a public certificate for your domain, using DNS validation.
-2. Add the validation CNAME record at your DNS provider and wait until the certificate shows "Issued".
-3. Set the GitHub variables `DOMAIN_NAME` (for example `humanitylabs.example.org`) and `CERTIFICATE_ARN`, then run **AWS deploy**. The load balancer then serves HTTPS, redirects HTTP, and the app sets Secure cookies and HSTS.
-4. Point the domain at the load balancer: a CNAME to the load balancer's DNS name, or a Route 53 alias record.
+`humanitylabs.in` is registered in Amazon Route 53. Registering it there created its public hosted zone, and Terraform handles everything else on the next approved **AWS provision** or **AWS deploy**:
+
+| What | Where | Detail |
+|---|---|---|
+| Hosted zone | Route 53 (created at registration) | Looked up only. Terraform never creates, changes or deletes it, and no teardown removes it |
+| Certificate | ACM, `ap-south-1` (platform stack) | One certificate for `humanitylabs.in` and `www.humanitylabs.in`, validated by two CNAME records Terraform adds to the zone. ACM renews it automatically while those records exist |
+| `humanitylabs.in` | A alias → load balancer (app stack) | Queries to alias records are free |
+| `www.humanitylabs.in` | A alias → load balancer | Answered with a 301 to `https://humanitylabs.in`, keeping the path and query |
+| `http://` (either name) | Load balancer port 80 | 301 straight to `https://humanitylabs.in` in one hop |
+| Any other host, such as the load balancer's own name | HTTPS listener | 301 to `https://humanitylabs.in` |
+| App settings | Task definitions | `BATCHLIGHT_BASE_URL=https://humanitylabs.in` (used in email links), Secure cookies, HSTS |
+
+**State on 10 November 2026**, from public DNS and certificate-transparency logs (nothing in AWS was read or changed):
+
+- The `.in` registry delegates the domain to the Route 53 name servers `ns-104.awsdns-13.com`, `ns-546.awsdns-04.net`, `ns-1594.awsdns-07.co.uk` and `ns-1499.awsdns-59.org`, so the registration is complete and the hosted zone answers.
+- The zone holds only its NS and SOA records:
+  - no A record for `humanitylabs.in`;
+  - `www.humanitylabs.in` does not exist;
+  - no CAA, MX or TXT records.
+- No certificate has been issued for the domain, which is expected before the first provision.
+- DNSSEC is off: there is no DS record at the registry.
+
+**What remains to make the domain live:**
+
+1. The domain must be in the **same AWS account** as the deployment, because Terraform looks the hosted zone up there. If it was bought in another account, either:
+   - create a public hosted zone for `humanitylabs.in` in the deployment account, then point the domain at it: in the account that holds the registration, open *Registered domains → humanitylabs.in → Edit name servers* and enter the new zone's four name servers. The registration can stay where it is; or
+   - also transfer the registration (*Registered domains → Actions → Transfer to another AWS account*). Hosted zones don't move between accounts, so you still create the zone in the deployment account and point the name servers at it as above.
+2. Run `infra/scripts/bootstrap.sh`. Among other things, it lets the deploy role manage the domain's records and certificate.
+3. Approve **AWS provision**. When it finishes, https://humanitylabs.in is live. No manual certificate or DNS step is needed.
+4. In Route 53 → *Registered domains*, check that automatic renewal is on and the contact details are correct.
+
+Optional hardening, each a separate DNS change that needs your approval:
+
+- **CAA record.** `0 issue "amazon.com"` stops other certificate authorities issuing certificates for the domain.
+- **DNSSEC.** Signing needs a KMS key, at about $1 a month.
+- **HSTS preload.** Add the domain to the browser preload list once HTTPS has run without trouble for a while.
 
 ### 5. Email (manual)
 
@@ -186,7 +225,9 @@ Without these settings, no email is delivered:
 1. In Amazon SES (`ap-south-1`), verify your sending domain or address and request production access. A new SES account can only send to verified addresses.
 2. Create SMTP credentials in SES.
 3. Store the SMTP password (never commit it): `aws secretsmanager put-secret-value --secret-id humanity-labs/smtp-password --secret-string '<password>'`
-4. Set the GitHub variables `EMAIL_BACKEND=smtp`, `SMTP_HOST=email-smtp.ap-south-1.amazonaws.com`, `SMTP_USERNAME=<SMTP user name>` and `EMAIL_FROM=Humanity Labs <alerts@your-domain>`, then run **AWS deploy**.
+4. Set the GitHub variables `EMAIL_BACKEND=smtp`, `SMTP_HOST=email-smtp.ap-south-1.amazonaws.com` and `SMTP_USERNAME=<SMTP user name>`, then run **AWS deploy**. Mail goes out from `Humanity Labs <alerts@humanitylabs.in>` by default; set `EMAIL_FROM` to change it.
+
+Verifying `humanitylabs.in` in SES means adding its DKIM CNAME records to the hosted zone. The deploy role is deliberately not allowed to add them, so add them in the SES console (it offers to create them in Route 53) or ask for them to be added to Terraform.
 
 Not wired up: `BATCHLIGHT_OPENFDA_API_KEY` (optional, raises openFDA rate limits). To use it, add a secret to `infra/terraform/platform/secrets.tf` the same way as the SMTP password.
 
@@ -367,8 +408,8 @@ Actions → **AWS deprovision**. Type `deprovision production` and approve. Both
 
 | Scope | Removes | Keeps | Bring it back |
 |---|---|---|---|
-| `app` (default) | load balancer, ECS services and tasks, task definitions, cluster | database, all backups, secrets, images, network, logs | **AWS provision** (all data intact) |
-| `everything-except-backups` | the above plus the database (after an RDS final snapshot), network, secrets, image repository and logs | every snapshot, the retained automated backups, the Terraform state bucket and the IAM roles | **AWS provision** with `restore_snapshot` |
+| `app` (default) | load balancer, ECS services and tasks, task definitions, cluster, WAF, the `humanitylabs.in` and `www` records (the site stops resolving) | database, all backups, secrets, images, network, logs, the certificate, the hosted zone and the domain | **AWS provision** (all data intact) |
+| `everything-except-backups` | the above plus the database (after an RDS final snapshot), network, secrets, image repository, logs, and the certificate with its validation records | every snapshot, the retained automated backups, the Terraform state bucket, the IAM roles, the hosted zone and the domain registration | **AWS provision** with `restore_snapshot` |
 
 The full scope stops before removing anything if another database, such as an un-adopted restore, still uses the network. No workflow deletes snapshots other than the daily ones past retention.
 
@@ -389,6 +430,8 @@ Prices are for `ap-south-1` from the AWS Price List API, retrieved in November 2
 | Worker task (0.25 vCPU, 2 GB, ARM64) | same rates, on-demand | up to $8.16 |
 | Application Load Balancer | $0.0239/h + $0.008 per LCU-hour (about 0.1–0.5 LCU at low traffic) | $18.03–20.37 |
 | Public IPv4 addresses (load balancer ×2, web, worker) | 4 × $0.005/h | $14.60 |
+| Route 53 hosted zone for humanitylabs.in | $0.50 per zone; alias queries free, others $0.40 per million | about $0.50 |
+| ACM certificate | public certificates are free | $0 |
 | RDS db.t4g.micro, Single-AZ | $0.021/h | $15.33 |
 | RDS gp3 storage, 20 GB | $0.131/GB-month | $2.62 |
 | Backup storage (35 days of point-in-time recovery plus daily snapshots) | free up to the database's allocated storage (20 GB) while it exists, then $0.095/GB-month | $0 to start |
@@ -399,7 +442,9 @@ Prices are for `ap-south-1` from the AWS Price List API, retrieved in November 2
 | ECR image storage | $0.10/GB-month, at most 30 images kept | about $0.50–1 |
 | CloudWatch Logs | $0.67/GB ingested, $0.03/GB-month stored, 30 days | about $1–2 |
 | Terraform state bucket, one-off tasks | | under $0.50 |
-| **Total** | | **about $76–82, or $90–97 with 18% GST** (about $67–71 without WAF) |
+| **Total** | | **about $77–82, or $91–97 with 18% GST** (about $67–72 without WAF) |
+
+The domain's yearly registration fee is billed separately by Route 53 and is not included.
 
 Notes:
 
@@ -447,7 +492,7 @@ Not adopted on purpose: AWS's anonymous-IP rule list. It would block VPN users a
 - [ ] Use an AWS account dedicated to this site.
 - [ ] Run the bootstrap stack with `alert_email`, keep its local state file safe, and click the subscription confirmation email (step 1).
 - [ ] Create the `production` environment with required reviewers and allow only `main`, **then** set the variables (step 2).
-- [ ] Get an ACM certificate, set `DOMAIN_NAME` and `CERTIFICATE_ARN`, and point DNS at the load balancer (step 4).
+- [ ] Confirm `humanitylabs.in` is registered in the deployment account, with automatic renewal on (step 4). The certificate, DNS records and redirects are created by AWS provision.
 - [ ] Verify the SES sender, get production access, store the SMTP password, and set the email variables (step 5).
 - [ ] Make yourself a curator (step 3).
 - [ ] Run **AWS restore** in `verify` mode once to prove the backups work.

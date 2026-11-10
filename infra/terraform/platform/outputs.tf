@@ -17,3 +17,6 @@ output "db_max_allocated_storage" { value = aws_db_instance.main.max_allocated_s
 output "db_backup_retention_days" { value = aws_db_instance.main.backup_retention_period }
 output "alerts_topic_arn" { value = local.alerts_topic_arn }
 output "ecs_permissions_boundary_arn" { value = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:policy/${var.project}-ecs-boundary" }
+output "domain_name" { value = var.domain_name }
+output "certificate_arn" { value = local.certificate }
+output "hosted_zone_id" { value = local.has_domain ? data.aws_route53_zone.site[0].zone_id : "" }

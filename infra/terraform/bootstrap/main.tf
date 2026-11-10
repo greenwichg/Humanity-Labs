@@ -151,7 +151,15 @@ data "aws_iam_policy_document" "backup_trust" {
 #   - it can never delete or share RDS snapshots, delete retained automated backups or export snapshots, and
 #     cannot attach policies that would share secrets, images, logs or disk snapshots with another account.
 
+# The hosted zone Route 53 created when the domain was registered in this account.
+data "aws_route53_zone" "site" {
+  count        = var.domain_name != "" ? 1 : 0
+  name         = var.domain_name
+  private_zone = false
+}
+
 locals {
+  zone_arn         = var.domain_name != "" ? "arn:${data.aws_partition.current.partition}:route53:::hostedzone/${data.aws_route53_zone.site[0].zone_id}" : ""
   ecs_boundary_arn = "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:policy/${local.name_prefix}-ecs-boundary"
   ecs_role_arns    = "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-ecs-*"
 }
@@ -189,7 +197,9 @@ data "aws_iam_policy_document" "deploy" {
     sid = "ManageServices"
     actions = [
       "ec2:*", "elasticloadbalancing:*", "ecs:*", "ecr:*", "rds:*", "logs:*",
-      "cloudwatch:*", "application-autoscaling:*", "wafv2:*", "acm:DescribeCertificate", "acm:ListCertificates",
+      "cloudwatch:*", "application-autoscaling:*", "wafv2:*",
+      "acm:RequestCertificate", "acm:DescribeCertificate", "acm:DeleteCertificate", "acm:ListCertificates",
+      "acm:ListTagsForCertificate", "acm:AddTagsToCertificate", "acm:RemoveTagsFromCertificate",
       "kms:DescribeKey", "kms:ListAliases", "sts:GetCallerIdentity", "servicediscovery:*"
     ]
     resources = ["*"]
@@ -198,6 +208,34 @@ data "aws_iam_policy_document" "deploy" {
     sid       = "ThisProjectsSecrets"
     actions   = ["secretsmanager:*"]
     resources = ["arn:${data.aws_partition.current.partition}:secretsmanager:${var.aws_region}:${local.account_id}:secret:${local.name_prefix}/*"]
+  }
+  # DNS: only the site's hosted zone, and only the records Terraform manages there (the domain, www and the
+  # certificate validation records), so the role cannot change mail or any other record of the domain.
+  statement {
+    sid       = "FindHostedZones"
+    actions   = ["route53:ListHostedZones", "route53:ListHostedZonesByName", "route53:GetChange"]
+    resources = ["*"]
+  }
+  dynamic "statement" {
+    for_each = local.zone_arn == "" ? [] : [local.zone_arn]
+    content {
+      sid       = "ReadSiteZone"
+      actions   = ["route53:GetHostedZone", "route53:ListResourceRecordSets", "route53:ListTagsForResource"]
+      resources = [statement.value]
+    }
+  }
+  dynamic "statement" {
+    for_each = local.zone_arn == "" ? [] : [local.zone_arn]
+    content {
+      sid       = "ChangeOnlySiteRecords"
+      actions   = ["route53:ChangeResourceRecordSets"]
+      resources = [statement.value]
+      condition {
+        test     = "ForAllValues:StringLike"
+        variable = "route53:ChangeResourceRecordSetsNormalizedRecordNames"
+        values   = [var.domain_name, "www.${var.domain_name}", "_*.${var.domain_name}"]
+      }
+    }
   }
   statement {
     sid       = "CreateBoundedEcsRoles"

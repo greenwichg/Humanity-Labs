@@ -44,8 +44,7 @@ jobs:
       TF_VAR_db_identifier: ${{ vars.DB_IDENTIFIER }}
       DB: ${{ vars.DB_IDENTIFIER || format('{0}-db', vars.PROJECT || 'humanity-labs') }}
       TF_VAR_image_tag: unused-on-destroy
-      TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
-      TF_VAR_certificate_arn: ${{ vars.CERTIFICATE_ARN }}
+      TF_VAR_domain_name: ${{ vars.DOMAIN_NAME || 'humanitylabs.in' }}
     steps:
       - name: Check the confirmation
         if: inputs.confirm != 'deprovision production'

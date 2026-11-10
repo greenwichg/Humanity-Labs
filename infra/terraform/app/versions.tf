@@ -26,6 +26,10 @@ data "terraform_remote_state" "platform" {
 
 locals {
   platform = data.terraform_remote_state.platform.outputs
-  https    = var.certificate_arn != ""
-  base_url = var.domain_name != "" ? "${local.https ? "https" : "http"}://${var.domain_name}" : "http://${aws_lb.main.dns_name}"
+  # The domain and its certificate come from the platform stack (platform/domain.tf).
+  domain          = try(local.platform.domain_name, "")
+  certificate_arn = try(local.platform.certificate_arn, "")
+  zone_id         = try(local.platform.hosted_zone_id, "")
+  https           = local.certificate_arn != ""
+  base_url        = local.https ? "https://${local.domain}" : "http://${aws_lb.main.dns_name}"
 }

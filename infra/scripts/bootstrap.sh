@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # One-time AWS and GitHub setup, run from your own machine (go-live steps 2 and 3 in docs/AWS_DEPLOYMENT.md).
 #
-#   infra/scripts/bootstrap.sh --alert-email you@example.org [--region ap-south-1] [--budget 100]
+#   infra/scripts/bootstrap.sh --alert-email you@example.org [--domain humanitylabs.in] [--region ap-south-1] [--budget 100]
 #
 # In this order, so the AWS roles are never usable without your approval:
-#   1. checks you are signed in to the right AWS account (you type its ID to confirm) and are a repository admin;
+#   1. checks you are signed in to the right AWS account (you type its ID to confirm), that the domain's Route 53
+#      hosted zone is in that account, and that you are a repository admin;
 #   2. protects the GitHub "production" environment: you as required reviewer, deployments from main only;
 #   3. runs the bootstrap Terraform stack (Terraform shows its plan and asks before changing anything);
 #   4. sets the repository variables the workflows need.
@@ -18,6 +19,7 @@ REPO="${REPO:-greenwichg/Humanity-Labs}"
 ENVIRONMENT="production"
 REGION="ap-south-1"
 BUDGET="100"
+DOMAIN="humanitylabs.in"
 ALERT_EMAIL=""
 
 usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
@@ -26,6 +28,7 @@ while [ $# -gt 0 ]; do
     --alert-email) ALERT_EMAIL="${2:-}"; shift 2 ;;
     --region) REGION="${2:-}"; shift 2 ;;
     --budget) BUDGET="${2:-}"; shift 2 ;;
+    --domain) DOMAIN="${2:-}"; shift 2 ;;
     -h|--help) usage 0 ;;
     *) echo "Unknown option: $1" >&2; usage 1 ;;
   esac
@@ -51,6 +54,21 @@ echo "Signed in as $caller"
 echo "Account $account, region $REGION"
 read -r -p "Type the account ID to confirm this is the account dedicated to this site: " typed
 [ "$typed" = "$account" ] || { echo "Account ID did not match; nothing was changed." >&2; exit 1; }
+
+if [ -n "$DOMAIN" ]; then
+  step "Checking the Route 53 hosted zone for $DOMAIN"
+  zones=$(aws route53 list-hosted-zones-by-name --dns-name "$DOMAIN" --output json)
+  zone=$(python3 -c '
+import json, sys
+domain = sys.argv[1].rstrip(".") + "."
+zones = [z for z in json.load(sys.stdin)["HostedZones"] if z["Name"] == domain and not z["Config"].get("PrivateZone")]
+print(zones[0]["Id"].split("/")[-1] if len(zones) == 1 else len(zones))' "$DOMAIN" <<<"$zones")
+  case "$zone" in
+    0) echo "No public hosted zone for $DOMAIN in account $account. See docs/AWS_DEPLOYMENT.md, step 4; nothing was changed." >&2; exit 1 ;;
+    [0-9]*) echo "$zone public hosted zones for $DOMAIN in this account; keep one. Nothing was changed." >&2; exit 1 ;;
+  esac
+  echo "Hosted zone $zone"
+fi
 
 step "Checking GitHub access to $REPO"
 login=$(gh api user --jq .login)
@@ -94,7 +112,7 @@ if aws iam list-open-id-connect-providers --output text | grep -q "oidc-provider
   oidc_args=(-var create_github_oidc_provider=false)
 fi
 terraform -chdir="$STACK" init -input=false >/dev/null
-terraform -chdir="$STACK" apply -var "aws_region=$REGION" -var "alert_email=$ALERT_EMAIL" \
+terraform -chdir="$STACK" apply -var "aws_region=$REGION" -var "alert_email=$ALERT_EMAIL" -var "domain_name=$DOMAIN" \
   -var "monthly_budget_usd=$BUDGET" ${oidc_args[@]+"${oidc_args[@]}"}  # empty-array form also works on bash 3.2 (macOS)
 
 deploy_role=$(terraform -chdir="$STACK" output -raw deploy_role_arn)
@@ -105,6 +123,7 @@ state_bucket=$(terraform -chdir="$STACK" output -raw state_bucket)
 step "Setting the repository variables"
 verify_environment >/dev/null || { echo "The environment lost its protection; variables not set." >&2; exit 1; }
 gh variable set AWS_REGION --repo "$REPO" --body "$REGION"
+gh variable set DOMAIN_NAME --repo "$REPO" --body "$DOMAIN"
 gh variable set TF_STATE_BUCKET --repo "$REPO" --body "$state_bucket"
 gh variable set AWS_BACKUP_ROLE_ARN --repo "$REPO" --body "$backup_role"
 gh variable set AWS_DEPLOY_ROLE_ARN --repo "$REPO" --body "$deploy_role"  # last: this one switches on deploys
@@ -114,6 +133,6 @@ cat <<EOF
 - AWS has emailed $ALERT_EMAIL a subscription confirmation: click it, or alarms will not reach you.
 - Keep a copy of $STACK/terraform.tfstate somewhere safe (it is not in git).
 - From now on every push to main that passes CI starts "AWS deploy", which waits for your approval.
-  Until HTTPS is set up (docs/AWS_DEPLOYMENT.md, step 4), reject those runs or run "AWS provision" yourself.
-- Next: HTTPS and email (step 4), then "AWS provision" and an "AWS restore" verify drill (step 5).
+- Next: approve "AWS provision": it creates the certificate, the DNS records and the redirects, and the site goes
+  live at https://$DOMAIN. Then set up email (step 5) and run an "AWS restore" verify drill.
 EOF

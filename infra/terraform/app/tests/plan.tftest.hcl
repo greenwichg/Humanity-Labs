@@ -12,6 +12,9 @@ override_data {
     smtp_password_secret_arn     = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/smtp-password-c",
     alerts_topic_arn             = "arn:aws:sns:ap-south-1:111122223333:humanity-labs-alerts",
     ecs_permissions_boundary_arn = "arn:aws:iam::111122223333:policy/humanity-labs-ecs-boundary"
+    domain_name                  = "humanitylabs.in"
+    certificate_arn              = "arn:aws:acm:ap-south-1:111122223333:certificate/abc"
+    hosted_zone_id               = "Z0HUMANITYLABS"
   } }
 }
 variables {
@@ -36,9 +39,6 @@ run "plan" {
 
 run "arm64_pool_settings_and_waf" {
   command = plan
-  variables {
-    domain_name = "example.org" # makes the container definitions known at plan time (no load balancer name needed)
-  }
   assert {
     condition = alltrue([
       for td in [aws_ecs_task_definition.web, aws_ecs_task_definition.worker, aws_ecs_task_definition.cli] :
@@ -69,5 +69,60 @@ run "waf_can_be_turned_off" {
   assert {
     condition     = aws_ecs_task_definition.worker.runtime_platform[0].cpu_architecture == "X86_64"
     error_message = "cpu_architecture must switch every task"
+  }
+}
+
+run "https_on_the_domain_with_www_redirect" {
+  command = plan
+  assert {
+    condition     = output.base_url == "https://humanitylabs.in"
+    error_message = "the site address must be https://humanitylabs.in"
+  }
+  assert {
+    condition     = contains(jsondecode(aws_ecs_task_definition.web.container_definitions)[0].environment, { name = "BATCHLIGHT_BASE_URL", value = "https://humanitylabs.in" }) && contains(jsondecode(aws_ecs_task_definition.web.container_definitions)[0].environment, { name = "BATCHLIGHT_SECURE_COOKIES", value = "true" })
+    error_message = "the app must use the https address and Secure cookies"
+  }
+  assert {
+    condition     = aws_lb_listener.https[0].certificate_arn == "arn:aws:acm:ap-south-1:111122223333:certificate/abc" && aws_lb_listener.https[0].ssl_policy == "ELBSecurityPolicy-TLS13-1-2-2021-06"
+    error_message = "HTTPS must use the platform certificate and the TLS 1.2/1.3 policy"
+  }
+  assert {
+    condition     = aws_lb_listener.https[0].default_action[0].type == "redirect" && aws_lb_listener.https[0].default_action[0].redirect[0].host == "humanitylabs.in" && aws_lb_listener.https[0].default_action[0].redirect[0].status_code == "HTTP_301"
+    error_message = "any other host (www, the load balancer's name) must get a 301 to humanitylabs.in"
+  }
+  assert {
+    condition     = one(aws_lb_listener_rule.canonical_host[0].condition[*].host_header[0].values) == toset(["humanitylabs.in"]) && aws_lb_listener_rule.canonical_host[0].action[0].type == "forward"
+    error_message = "only humanitylabs.in is forwarded to the app"
+  }
+  assert {
+    condition     = aws_lb_listener.http_redirect[0].default_action[0].redirect[0].host == "humanitylabs.in" && aws_lb_listener.http_redirect[0].default_action[0].redirect[0].protocol == "HTTPS" && length(aws_lb_listener.http_forward) == 0
+    error_message = "HTTP must redirect straight to https://humanitylabs.in"
+  }
+  assert {
+    condition     = aws_route53_record.apex[0].name == "humanitylabs.in" && aws_route53_record.www[0].name == "www.humanitylabs.in" && aws_route53_record.apex[0].zone_id == "Z0HUMANITYLABS" && aws_route53_record.www[0].type == "A"
+    error_message = "the domain and www must point at the load balancer"
+  }
+}
+
+run "without_a_domain_serves_http_on_the_load_balancer" {
+  command = plan
+  override_data {
+    target = data.terraform_remote_state.platform
+    values = { outputs = {
+      vpc_id                       = "vpc-1", public_subnet_ids = ["subnet-a", "subnet-b"], app_security_group_id = "sg-app",
+      ecr_repository_url           = "111122223333.dkr.ecr.ap-south-1.amazonaws.com/humanity-labs", log_group_name = "/ecs/humanity-labs",
+      database_url_secret_arn      = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/database-url-a",
+      app_secret_key_arn           = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/app-secret-key-b",
+      smtp_password_secret_arn     = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/smtp-password-c",
+      alerts_topic_arn             = "arn:aws:sns:ap-south-1:111122223333:humanity-labs-alerts",
+      ecs_permissions_boundary_arn = "arn:aws:iam::111122223333:policy/humanity-labs-ecs-boundary"
+      domain_name                  = ""
+      certificate_arn              = ""
+      hosted_zone_id               = ""
+    } }
+  }
+  assert {
+    condition     = length(aws_lb_listener.http_forward) == 1 && length(aws_lb_listener.https) == 0 && length(aws_route53_record.apex) == 0 && length(aws_route53_record.www) == 0
+    error_message = "without a domain there is no HTTPS listener and no DNS record"
   }
 }

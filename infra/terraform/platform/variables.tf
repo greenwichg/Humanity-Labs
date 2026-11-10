@@ -93,3 +93,9 @@ variable "allow_destroy_images" {
   type        = bool
   default     = false
 }
+
+variable "domain_name" {
+  description = "Production domain, registered in Route 53 in this account (its hosted zone must exist). Empty: no certificate, and the site is served over HTTP on the load balancer's own name."
+  type        = string
+  default     = "humanitylabs.in"
+}

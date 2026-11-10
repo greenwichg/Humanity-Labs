@@ -31,6 +31,9 @@ if name == "aws":
         print(json.dumps({"Account": "111122223333", "Arn": "arn:aws:iam::111122223333:user/admin"}))
     elif args[:2] == ["iam", "list-open-id-connect-providers"]:
         print(os.environ.get("STUB_OIDC", ""))
+    elif args[:2] == ["route53", "list-hosted-zones-by-name"]:
+        zones = [{"Id": "/hostedzone/Z0HUMANITYLABS", "Name": "humanitylabs.in.", "Config": {"PrivateZone": False}}]
+        print(json.dumps({"HostedZones": [] if os.environ.get("STUB_NO_ZONE") else zones}))
 elif name == "gh":
     if joined == "api user --jq .login":
         print("owner")
@@ -104,8 +107,12 @@ def test_protects_the_environment_before_aws_and_sets_the_deploy_role_last(tmp_p
     assert "alert_email=alerts@example.org" in calls[apply]["args"]
     assert "create_github_oidc_provider=false" not in calls[apply]["args"]
 
+    assert "domain_name=humanitylabs.in" in calls[apply]["args"]
+    zone_check = index(calls, lambda c: c["cmd"] == "aws" and c["args"][:2] == ["route53", "list-hosted-zones-by-name"])
+    assert zone_check < protect
+
     variables = [c["args"][2] for c in calls if c["cmd"] == "gh" and c["args"][:2] == ["variable", "set"]]
-    assert variables == ["AWS_REGION", "TF_STATE_BUCKET", "AWS_BACKUP_ROLE_ARN", "AWS_DEPLOY_ROLE_ARN"]
+    assert variables == ["AWS_REGION", "DOMAIN_NAME", "TF_STATE_BUCKET", "AWS_BACKUP_ROLE_ARN", "AWS_DEPLOY_ROLE_ARN"]
     first_variable = index(calls, lambda c: c["cmd"] == "gh" and c["args"][:2] == ["variable", "set"])
     assert apply < first_variable
 
@@ -135,3 +142,10 @@ def test_requires_an_alert_email(tmp_path):
     result, calls = run(tmp_path, "111122223333", args=[])
     assert result.returncode != 0
     assert calls == []
+
+
+def test_missing_hosted_zone_changes_nothing(tmp_path):
+    result, calls = run(tmp_path, "111122223333", {"STUB_NO_ZONE": "1"})
+    assert result.returncode != 0
+    assert "No public hosted zone for humanitylabs.in" in result.stderr
+    assert not any(is_change(c) for c in calls)

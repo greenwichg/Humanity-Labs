@@ -235,6 +235,7 @@ resource "aws_lb_listener" "http_forward" {
   }
 }
 
+# With the domain: HTTP goes straight to https://<domain> (one hop, also for www and the load balancer's own name).
 resource "aws_lb_listener" "http_redirect" {
   count             = local.https ? 1 : 0
   load_balancer_arn = aws_lb.main.arn
@@ -243,6 +244,7 @@ resource "aws_lb_listener" "http_redirect" {
   default_action {
     type = "redirect"
     redirect {
+      host        = local.domain
       port        = "443"
       protocol    = "HTTPS"
       status_code = "HTTP_301"
@@ -250,16 +252,38 @@ resource "aws_lb_listener" "http_redirect" {
   }
 }
 
+# HTTPS serves only the canonical host. Anything else (www, the load balancer's own name) is redirected to
+# https://<domain> with the same path and query.
 resource "aws_lb_listener" "https" {
   count             = local.https ? 1 : 0
   load_balancer_arn = aws_lb.main.arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = var.certificate_arn
+  certificate_arn   = local.certificate_arn
   default_action {
+    type = "redirect"
+    redirect {
+      host        = local.domain
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "canonical_host" {
+  count        = local.https ? 1 : 0
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 10
+  action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.web.arn
+  }
+  condition {
+    host_header {
+      values = [local.domain]
+    }
   }
 }
 
@@ -295,7 +319,8 @@ resource "aws_ecs_service" "web" {
     container_port   = 8000
   }
 
-  depends_on = [aws_lb_listener.http_forward, aws_lb_listener.https, aws_vpc_security_group_ingress_rule.app_from_alb]
+  # The target group must be attached to the load balancer (by a listener or rule) before the service starts.
+  depends_on = [aws_lb_listener.http_forward, aws_lb_listener_rule.canonical_host, aws_vpc_security_group_ingress_rule.app_from_alb]
 }
 
 resource "aws_ecs_service" "worker" {

@@ -23,17 +23,7 @@ variable "image_tag" {
   type        = string
 }
 
-variable "domain_name" {
-  description = "Public host name, for example works.example.org. Empty uses the load balancer's own name over HTTP."
-  type        = string
-  default     = ""
-}
 
-variable "certificate_arn" {
-  description = "ACM certificate for domain_name in the same region. Empty serves plain HTTP (not for real users)."
-  type        = string
-  default     = ""
-}
 
 variable "web_cpu" {
   description = "0.25 vCPU is enough for a small launch; raise to 512 or 1024 as traffic grows."
@@ -82,7 +72,7 @@ variable "email_backend" {
 
 variable "email_from" {
   type    = string
-  default = "Humanity Labs <alerts@example.org>"
+  default = "Humanity Labs <alerts@humanitylabs.in>"
 }
 
 variable "smtp_host" {

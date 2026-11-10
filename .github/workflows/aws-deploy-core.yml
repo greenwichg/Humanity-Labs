@@ -39,10 +39,10 @@ env:
   TF_VAR_project: ${{ vars.PROJECT || 'humanity-labs' }}
   TF_VAR_state_bucket: ${{ vars.TF_STATE_BUCKET }}
   TF_VAR_db_identifier: ${{ vars.DB_IDENTIFIER }}
-  TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
-  TF_VAR_certificate_arn: ${{ vars.CERTIFICATE_ARN }}
+  # Production domain, registered in Route 53 in the same account (platform/domain.tf). Set DOMAIN_NAME to override.
+  TF_VAR_domain_name: ${{ vars.DOMAIN_NAME || 'humanitylabs.in' }}
   TF_VAR_email_backend: ${{ vars.EMAIL_BACKEND || 'console' }}
-  TF_VAR_email_from: ${{ vars.EMAIL_FROM || 'Humanity Labs <alerts@example.org>' }}
+  TF_VAR_email_from: ${{ vars.EMAIL_FROM || 'Humanity Labs <alerts@humanitylabs.in>' }}
   TF_VAR_smtp_host: ${{ vars.SMTP_HOST }}
   TF_VAR_smtp_username: ${{ vars.SMTP_USERNAME }}
   # ARM64 (Graviton) is the default; set the repository variable CPU_ARCHITECTURE=X86_64 to switch back.
@@ -172,23 +172,50 @@ jobs:
         run: |
           terraform plan -out=app.tfplan
           terraform apply app.tfplan
-          echo "BASE_URL=$(terraform output -raw base_url)" >> "$GITHUB_ENV"
-          echo "ALB=$(terraform output -raw load_balancer_dns_name)" >> "$GITHUB_ENV"
+          {
+            echo "BASE_URL=$(terraform output -raw base_url)"
+            echo "ALB=$(terraform output -raw load_balancer_dns_name)"
+            echo "DOMAIN=$(terraform output -raw domain_name)"
+          } >> "$GITHUB_ENV"
 
       - name: Wait for the services to settle
         run: aws ecs wait services-stable --cluster "$CLUSTER" --services web worker
 
       - name: Smoke test
         run: |
+          # Connect to the load balancer directly but present the real host name, so the certificate and routing are
+          # checked even before new DNS records have reached every resolver.
+          get() { # get <host> <port> <url>
+            curl -sS --max-time 10 --connect-to "$1:$2:${ALB}:$2" -o /dev/null -w '%{http_code} %{redirect_url}' "$3"
+          }
           for path in /healthz /readyz /; do
             ok=""
             for _ in $(seq 1 12); do
-              if curl -fsS --max-time 10 "${BASE_URL}${path}" -o /dev/null || curl -fsSk --max-time 10 "https://${ALB}${path}" -o /dev/null || curl -fsS --max-time 10 "http://${ALB}${path}" -o /dev/null; then ok=1; break; fi
+              if [ -n "$DOMAIN" ]; then
+                result=$(get "$DOMAIN" 443 "https://${DOMAIN}${path}" || true)
+              else
+                result=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://${ALB}${path}" || true)
+              fi
+              if [ "${result%% *}" = "200" ]; then ok=1; break; fi
               sleep 10
             done
-            if [ -z "$ok" ]; then echo "::error::${path} did not answer"; exit 1; fi
-            echo "${path} answered"
+            if [ -z "$ok" ]; then echo "::error::${path} did not answer 200 (last: ${result:-no response})"; exit 1; fi
+            echo "${path} answered 200"
           done
+          if [ -n "$DOMAIN" ]; then
+            want="https://${DOMAIN}/alerts?q=test"
+            for check in "www.${DOMAIN} 443 https://www.${DOMAIN}/alerts?q=test" "${DOMAIN} 80 http://${DOMAIN}/alerts?q=test" "www.${DOMAIN} 80 http://www.${DOMAIN}/alerts?q=test"; do
+              read -r host port url <<<"$check"
+              result=$(get "$host" "$port" "$url")
+              location="${result#* }"
+              location="${location/:443\//\/}"
+              if [ "${result%% *}" != "301" ] || [ "$location" != "$want" ]; then
+                echo "::error::${url} should redirect (301) to ${want}; got: ${result}"
+                exit 1
+              fi
+              echo "${url} redirects to ${want}"
+            done
+          fi
 
       - name: Summary
         run: |
