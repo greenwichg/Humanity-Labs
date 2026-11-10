@@ -13,3 +13,7 @@ output "log_group_name" { value = aws_cloudwatch_log_group.app.name }
 output "database_url_secret_arn" { value = aws_secretsmanager_secret.database_url.arn }
 output "app_secret_key_arn" { value = aws_secretsmanager_secret.app_secret_key.arn }
 output "smtp_password_secret_arn" { value = aws_secretsmanager_secret.smtp_password.arn }
+output "db_max_allocated_storage" { value = aws_db_instance.main.max_allocated_storage }
+output "db_backup_retention_days" { value = aws_db_instance.main.backup_retention_period }
+output "alerts_topic_arn" { value = local.alerts_topic_arn }
+output "ecs_permissions_boundary_arn" { value = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:policy/${var.project}-ecs-boundary" }

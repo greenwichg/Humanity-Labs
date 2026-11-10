@@ -2,7 +2,8 @@
 #   - an encrypted, versioned S3 bucket for Terraform state (state locking uses S3 lock files);
 #   - GitHub's OIDC identity provider, so workflows get short-lived credentials and no AWS keys are stored in GitHub;
 #   - a deploy role usable only by jobs in the protected GitHub environment (which requires your approval);
-#   - a backup role usable by scheduled runs on the default branch, limited to RDS snapshots it creates.
+#   - a backup role usable by scheduled runs on the default branch, limited to RDS snapshots it creates;
+#   - the alert topic (email) used by the CloudWatch alarms, and a monthly cost budget.
 # This stack keeps its own state locally (terraform.tfstate here). Keep that file safe or re-import if lost.
 
 terraform {
@@ -140,6 +141,43 @@ data "aws_iam_policy_document" "backup_trust" {
 }
 
 # ---------------------------------------------------------------- deploy role
+#
+# The deploy role runs Terraform for the platform and app stacks, so it manages networking, ECS, RDS and the load
+# balancer. It is kept from becoming an account administrator, and from destroying or leaking backups:
+#   - it can only create roles named <project>-ecs-* that carry the permissions boundary below, can attach only the
+#     ECS task execution policy, and can pass roles only to ECS tasks, so it cannot grant itself or a task more power;
+#   - it cannot touch its own role or the backup role;
+#   - it can read only this project's secrets;
+#   - it can never delete or share RDS snapshots, delete retained automated backups or export snapshots, and
+#     cannot attach policies that would share secrets, images, logs or disk snapshots with another account.
+
+locals {
+  ecs_boundary_arn = "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:policy/${local.name_prefix}-ecs-boundary"
+  ecs_role_arns    = "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-ecs-*"
+}
+
+# The most any role created by the deploy role can ever do: what ECS needs to start the app's tasks.
+data "aws_iam_policy_document" "ecs_boundary" {
+  statement {
+    sid = "PullImagesAndWriteLogs"
+    actions = [
+      "ecr:GetAuthorizationToken", "ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage",
+      "logs:CreateLogStream", "logs:PutLogEvents"
+    ]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "ReadThisProjectsSecrets"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = ["arn:${data.aws_partition.current.partition}:secretsmanager:${var.aws_region}:${local.account_id}:secret:${local.name_prefix}/*"]
+  }
+}
+
+resource "aws_iam_policy" "ecs_boundary" {
+  name        = "${local.name_prefix}-ecs-boundary"
+  description = "Permissions boundary for roles the GitHub deploy role creates"
+  policy      = data.aws_iam_policy_document.ecs_boundary.json
+}
 
 data "aws_iam_policy_document" "deploy" {
   statement {
@@ -150,21 +188,55 @@ data "aws_iam_policy_document" "deploy" {
   statement {
     sid = "ManageServices"
     actions = [
-      "ec2:*", "elasticloadbalancing:*", "ecs:*", "ecr:*", "rds:*", "logs:*", "secretsmanager:*",
+      "ec2:*", "elasticloadbalancing:*", "ecs:*", "ecr:*", "rds:*", "logs:*",
       "cloudwatch:*", "application-autoscaling:*", "acm:DescribeCertificate", "acm:ListCertificates",
       "kms:DescribeKey", "kms:ListAliases", "sts:GetCallerIdentity", "servicediscovery:*"
     ]
     resources = ["*"]
   }
   statement {
-    sid = "ManageProjectRoles"
+    sid       = "ThisProjectsSecrets"
+    actions   = ["secretsmanager:*"]
+    resources = ["arn:${data.aws_partition.current.partition}:secretsmanager:${var.aws_region}:${local.account_id}:secret:${local.name_prefix}/*"]
+  }
+  statement {
+    sid       = "CreateBoundedEcsRoles"
+    actions   = ["iam:CreateRole", "iam:PutRolePermissionsBoundary"]
+    resources = [local.ecs_role_arns]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PermissionsBoundary"
+      values   = [local.ecs_boundary_arn]
+    }
+  }
+  statement {
+    sid = "ManageEcsRoles"
     actions = [
-      "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:UpdateRole", "iam:TagRole", "iam:UntagRole",
-      "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:PutRolePolicy", "iam:GetRolePolicy",
-      "iam:DeleteRolePolicy", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListInstanceProfilesForRole",
-      "iam:UpdateAssumeRolePolicy", "iam:PassRole"
+      "iam:GetRole", "iam:DeleteRole", "iam:UpdateRole", "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags",
+      "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole",
+      "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy"
     ]
-    resources = ["arn:${data.aws_partition.current.partition}:iam::${local.account_id}:role/${local.name_prefix}-*"]
+    resources = [local.ecs_role_arns]
+  }
+  statement {
+    sid       = "AttachOnlyTheEcsExecutionPolicy"
+    actions   = ["iam:AttachRolePolicy", "iam:DetachRolePolicy"]
+    resources = [local.ecs_role_arns]
+    condition {
+      test     = "ArnEquals"
+      variable = "iam:PolicyARN"
+      values   = ["arn:${data.aws_partition.current.partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"]
+    }
+  }
+  statement {
+    sid       = "PassRolesToEcsTasksOnly"
+    actions   = ["iam:PassRole"]
+    resources = [local.ecs_role_arns]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
   }
   statement {
     sid       = "ServiceLinkedRoles"
@@ -175,6 +247,31 @@ data "aws_iam_policy_document" "deploy" {
       variable = "iam:AWSServiceName"
       values   = ["ecs.amazonaws.com", "elasticloadbalancing.amazonaws.com", "rds.amazonaws.com"]
     }
+  }
+  # Explicit denies win over any allow, including one the role might gain later.
+  statement {
+    sid    = "NeverDestroyOrShareBackups"
+    effect = "Deny"
+    actions = [
+      "rds:DeleteDBSnapshot", "rds:DeleteDBClusterSnapshot", "rds:ModifyDBSnapshotAttribute",
+      "rds:ModifyDBClusterSnapshotAttribute", "rds:DeleteDBInstanceAutomatedBackup", "rds:StartExportTask"
+    ]
+    resources = ["*"]
+  }
+  statement {
+    sid    = "NeverShareOutsideTheAccount"
+    effect = "Deny"
+    actions = [
+      "secretsmanager:PutResourcePolicy", "ecr:SetRepositoryPolicy", "logs:PutSubscriptionFilter", "logs:PutDestination",
+      "logs:PutDestinationPolicy", "logs:CreateExportTask", "ec2:ModifySnapshotAttribute", "ec2:ModifyImageAttribute"
+    ]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "NeverRemoveTheBoundary"
+    effect    = "Deny"
+    actions   = ["iam:DeleteRolePermissionsBoundary"]
+    resources = ["*"]
   }
 }
 
@@ -225,4 +322,43 @@ resource "aws_iam_role_policy" "backup" {
   name   = "backup"
   role   = aws_iam_role.backup.id
   policy = data.aws_iam_policy_document.backup.json
+}
+
+# ---------------------------------------------------------------- alerts and budget
+
+# CloudWatch alarms in the platform and app stacks send to this topic. The topic is not encrypted on purpose:
+# CloudWatch alarms cannot publish to a topic encrypted with the AWS-managed SNS key.
+resource "aws_sns_topic" "alerts" {
+  name = "${local.name_prefix}-alerts"
+}
+
+resource "aws_sns_topic_subscription" "alerts_email" {
+  count     = var.alert_email != "" ? 1 : 0
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email # AWS sends a confirmation email; alerts arrive only after you confirm it
+}
+
+resource "aws_budgets_budget" "monthly" {
+  count        = var.alert_email != "" ? 1 : 0
+  name         = "${local.name_prefix}-monthly"
+  budget_type  = "COST"
+  limit_amount = tostring(var.monthly_budget_usd)
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 80
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.alert_email]
+  }
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "FORECASTED"
+    subscriber_email_addresses = [var.alert_email]
+  }
 }

@@ -27,6 +27,7 @@ skip-check:
   - CKV_AWS_144   # state bucket cross-region replication: optional
   - CKV2_AWS_62   # state bucket event notifications: not needed
   - CKV_AWS_394   # two zones are picked from the region's available zones at creation time
+  - CKV_AWS_26    # alert topic carries alarm names only; CloudWatch cannot publish to a topic encrypted with the AWS-managed SNS key
   - CKV2_AWS_5    # the app security group is attached by the app stack (separate state)
   - CKV_AWS_107   # deploy role manages the whole stack; it is usable only from approved runs of this repository
   - CKV_AWS_108   # same

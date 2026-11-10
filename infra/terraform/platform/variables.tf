@@ -42,9 +42,9 @@ variable "db_max_allocated_storage" {
 }
 
 variable "db_backup_retention_days" {
-  description = "Automated backups and point-in-time recovery window (1-35 days)."
+  description = "Automated backups and point-in-time recovery window (1-35 days). RDS runs these itself, independent of GitHub."
   type        = number
-  default     = 7
+  default     = 35
 }
 
 variable "db_multi_az" {

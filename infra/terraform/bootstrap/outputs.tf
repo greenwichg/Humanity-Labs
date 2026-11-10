@@ -12,3 +12,8 @@ output "backup_role_arn" {
   description = "Set as the GitHub variable AWS_BACKUP_ROLE_ARN."
   value       = aws_iam_role.backup.arn
 }
+
+output "alerts_topic_arn" {
+  description = "SNS topic the CloudWatch alarms notify."
+  value       = aws_sns_topic.alerts.arn
+}

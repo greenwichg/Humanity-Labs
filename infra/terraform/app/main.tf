@@ -12,8 +12,9 @@ data "aws_iam_policy_document" "ecs_tasks_trust" {
 
 # Used by ECS itself to pull the image, write logs and read the three secrets. The app needs no AWS permissions.
 resource "aws_iam_role" "execution" {
-  name               = "${var.project}-ecs-execution"
-  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_trust.json
+  name                 = "${var.project}-ecs-execution"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  permissions_boundary = local.platform.ecs_permissions_boundary_arn # required: the deploy role may only create bounded roles
 }
 
 resource "aws_iam_role_policy_attachment" "execution" {

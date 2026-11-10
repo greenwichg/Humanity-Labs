@@ -53,13 +53,20 @@ Terraform is split into three stacks so the disposable parts can be removed with
 
 | Stack | Holds | State | Removed by |
 |---|---|---|---|
-| `infra/terraform/bootstrap` | S3 bucket for Terraform state (versioned, encrypted, TLS only), GitHub OIDC provider, two IAM roles for GitHub Actions | Local file in that folder (run once by hand) | Never by a workflow |
+| `infra/terraform/bootstrap` | S3 bucket for Terraform state (versioned, encrypted, TLS only), GitHub OIDC provider, two IAM roles for GitHub Actions and the permissions boundary for roles they create, the alert topic and a monthly cost budget | Local file in that folder (run by hand) | Never by a workflow |
 | `infra/terraform/platform` | VPC and subnets, security groups, **RDS database**, secrets, ECR repository, log groups | S3 `platform/terraform.tfstate` | Only "AWS deprovision" with scope `everything-except-backups` |
 | `infra/terraform/app` | ECS cluster, task definitions, web and worker services, load balancer, HTTPS listener | S3 `app/terraform.tfstate` | "AWS deprovision" (either scope) |
 
 Security choices:
 
 - **No stored AWS keys.** GitHub Actions gets short-lived credentials through OIDC. The deploy role trusts only jobs of `greenwichg/Humanity-Labs` running in the `production` environment. The backup role trusts only the `main` branch and can only create, tag and delete its own `*-daily-*` snapshots.
+- **A deploy role that cannot become an administrator or destroy backups.** It manages the network, ECS, RDS and the load balancer, but:
+  - it can create only roles named `<project>-ecs-*`, and only with the `<project>-ecs-boundary` permissions boundary (image pulls, logs, this project's secrets);
+  - it can attach only the ECS task execution policy, pass roles only to ECS tasks, and cannot change its own role or the backup role;
+  - it can read only this project's secrets;
+  - explicit denies stop it from deleting or sharing snapshots, deleting retained automated backups, exporting snapshots, or sharing secrets, images or logs with another account.
+
+  It still has broad EC2, RDS and load-balancer rights, so **use an AWS account dedicated to this site** (for example a member account in AWS Organizations), not one shared with other systems.
 - **No exposed database.** The database has no public address, and its security group admits port 5432 only from the app's security group.
 - **Load balancer only.** Tasks accept traffic only from the load balancer. The load balancer drops invalid headers, and with a certificate it redirects HTTP to HTTPS (TLS 1.2/1.3 policy).
 - **Secrets stay out of task definitions.** ECS reads them from Secrets Manager when a task starts.
@@ -74,9 +81,15 @@ You need an AWS account, AWS CLI v2 with administrator credentials on your own m
 ```bash
 cd infra/terraform/bootstrap
 terraform init
-terraform apply          # review: 1 S3 bucket, 1 OIDC provider, 2 IAM roles and their policies
+terraform apply -var alert_email=you@example.org
+#   review: 1 S3 bucket, 1 OIDC provider, 2 IAM roles and their policies, 1 permissions boundary,
+#           1 SNS alert topic with your email subscription, 1 monthly budget
 terraform output         # note state_bucket, deploy_role_arn, backup_role_arn
 ```
+
+- **Confirm the alerts.** AWS emails a subscription confirmation to `alert_email`. Alarms reach you only after you click it.
+- **Budget.** The budget is $100 a month by default. It emails at 80% of actual spend and at 100% of forecast spend. Change it with `-var monthly_budget_usd=...`. Without `alert_email`, no budget or subscription is created.
+- **Updates.** If you pull changes to this stack later, run `terraform apply` here again with the same variables.
 
 - If the account already has a GitHub OIDC provider (`token.actions.githubusercontent.com`), add `-var create_github_oidc_provider=false`.
 - To use another region, add `-var aws_region=...` here and set the `AWS_REGION` variable below.
@@ -89,6 +102,7 @@ terraform output         # note state_bucket, deploy_role_arn, backup_role_arn
 
 - Add yourself (and anyone else allowed to change production) as a required reviewer. Every workflow that changes AWS waits here for approval.
 - Under "Deployment branches", allow `main` only.
+- Do this **before** setting `AWS_DEPLOY_ROLE_ARN`. GitHub creates an environment with no protection the first time a workflow uses it, and Terraform cannot enforce these settings.
 
 **Variables.** Settings → Secrets and variables → Actions → Variables (no secrets are needed):
 
@@ -172,20 +186,42 @@ Edit the Terraform under `infra/terraform/platform` or `infra/terraform/app` and
 | `web_count`, `web_cpu`, `web_memory`, `web_concurrency` | app | 1 task, 0.25 vCPU, 512 MB, 2 processes |
 | `worker_cpu`, `worker_memory`, `worker_use_spot` | app | 0.25 vCPU, 2 GB, Spot |
 | `db_instance_class`, `db_multi_az`, `db_allocated_storage`, `db_max_allocated_storage` | platform | db.t4g.micro, Single-AZ, 20 GB, up to 100 GB |
-| `db_backup_retention_days` | platform | 7 (point-in-time recovery window) |
+| `db_backup_retention_days` | platform | 35 (point-in-time recovery window, the RDS maximum) |
 | `log_retention_days`, `image_retention_count` | platform | 30 days, 30 images |
+
+## Monitoring and alerts
+
+Eight CloudWatch alarms email the address you gave the bootstrap stack. Eight alarms stay within CloudWatch's free tier of ten.
+
+| Alarm | Fires when |
+|---|---|
+| `<project>-web-down` | no healthy web task behind the load balancer for 3 minutes |
+| `<project>-web-5xx` | more than 10 server errors from the app in 5 minutes |
+| `<project>-load-balancer-5xx` | more than 10 errors from the load balancer itself in 5 minutes |
+| `<project>-worker-not-running` | no worker task for 15 minutes (for example no Fargate Spot capacity); data refreshes and alert emails stop |
+| `<project>-db-storage-low` | under 2 GiB of free database storage |
+| `<project>-db-cpu-high` | database CPU above 80% for 15 minutes |
+| `<project>-db-cpu-surplus-charged` | the burstable database is spending CPU credits that AWS bills |
+| `<project>-db-connections-high` | more than 70 database connections |
+
+Other notices:
+
+- **Cost.** The monthly budget emails at 80% of actual spend and at 100% of forecast spend.
+- **Failed GitHub runs.** GitHub emails failures of scheduled workflows (the daily backup) to the person who last changed the schedule, and failures of other runs to whoever started them.
 
 ## Backups
 
 | Backup | Kept | Survives deleting the database? |
 |---|---|---|
-| RDS automated backups: daily snapshot plus transaction logs, so any second in the window can be restored | 7 days | Yes. `delete_automated_backups = false` keeps them for the rest of their retention period |
+| RDS automated backups: daily snapshot plus transaction logs, so any second in the window can be restored. Run by RDS itself | 35 days | Yes. `delete_automated_backups = false` keeps them for the rest of their retention period |
 | Daily snapshot from **AWS backup** (`<project>-daily-<db>-<time>`) | 35 days, never fewer than the 7 newest | Yes. Manual snapshots stay until deleted |
 | Snapshot taken by **AWS deprovision** before it removes anything (`<project>-predeprovision-<time>`) | until you delete it | Yes |
 | RDS final snapshot when the database is deleted by a full teardown (`<project>-final-<time>`) | until you delete it | Yes |
 | Terraform state (S3 versioning) | old versions 90 days | Yes |
 
-The backup role can delete only snapshots it created itself (tag `created-by=github-backup`). No workflow deletes the other snapshots.
+The backup role can delete only snapshots it created itself (tag `created-by=github-backup`). No workflow deletes the other snapshots, and the deploy role is explicitly denied deleting or sharing any snapshot.
+
+The daily snapshot workflow is a second layer. GitHub turns off scheduled workflows in a public repository after 60 days without activity in it, so do not rely on it alone. The RDS automated backups above do not depend on GitHub.
 
 Not covered: copies in another region or another AWS account, which would protect against losing the whole region or a compromised account. To add them, copy snapshots with `aws rds copy-db-snapshot`, or use AWS Backup with a cross-region rule. Both add storage cost.
 
@@ -230,7 +266,7 @@ aws rds delete-db-instance --db-instance-identifier <restore-name> --skip-final-
 
 1. Run **AWS restore** with `source` set to a UTC time just before the problem, and `mode` = `verify`. Compare the row counts in the run log.
 2. If it looks right, run it again with `mode` = `promote` and `confirm` = `promote restored database`. Or run once with `promote`. The workflow then:
-   - switches on 7-day automated backups and the daily snapshots for the restored database;
+   - gives the restored database the same point-in-time recovery window (35 days), storage autoscaling and daily snapshots as the managed one (it is restored on gp3 storage, like the original);
    - points the `database-url` secret at it;
    - restarts web and worker.
 3. The old database is **not** changed or deleted. Anything written after the restore time exists only there. Copy it across by hand if needed.
@@ -321,12 +357,14 @@ Prices are for `ap-south-1` from the AWS Price List API, retrieved in November 2
 | Public IPv4 addresses (load balancer ×2, web, worker) | 4 × $0.005/h | $14.60 |
 | RDS db.t4g.micro, Single-AZ | $0.021/h | $15.33 |
 | RDS gp3 storage, 20 GB | $0.131/GB-month | $2.62 |
-| Backup storage | free up to the database's allocated storage (20 GB) while it exists, then $0.095/GB-month | $0 to start |
+| Backup storage (35 days of point-in-time recovery plus daily snapshots) | free up to the database's allocated storage (20 GB) while it exists, then $0.095/GB-month | $0 to start |
+| RDS CPU credits | db.t4g instances always run in Unlimited mode: CPU above the baseline is billed at $0.075 per vCPU-hour | $0 at low load; up to about $99 if the database ran at full CPU all month |
+| Alarms, alert emails, budget | 8 alarms (CloudWatch's free tier covers 10), SNS email, one budget | $0 |
 | Secrets Manager, 3 secrets | $0.40 each + $0.05 per 10,000 reads | $1.20 |
 | ECR image storage | $0.10/GB-month, at most 30 images kept | about $0.50–1 |
 | CloudWatch Logs | $0.67/GB ingested, $0.03/GB-month stored, 30 days | about $1–2 |
 | Terraform state bucket, one-off tasks | | under $0.50 |
-| **Total** | | **about $77–82** |
+| **Total** | | **about $77–82, or $91–97 with 18% GST** |
 
 Notes:
 
@@ -340,6 +378,10 @@ Notes:
   - Performance Insights;
   - VPC flow logs;
   - customer-managed KMS keys.
+- **CPU credits.** The `db-cpu-surplus-charged` alarm tells you when credit charges start. If they persist, find the load or move to db.t4g.small.
+- **Cheaper options.**
+  - ARM (Graviton) Fargate costs $0.02383 per vCPU-hour and $0.00261 per GB-hour in Mumbai. That would bring the web task to $5.30 and the worker to $8.16, saving about $10.57 a month, but needs an arm64 image build.
+  - SSM Parameter Store instead of Secrets Manager would save $1.20 a month.
 - **Bigger options.** db.t4g.small costs $30.66 instead of $15.33. A second web task adds $9.47.
 
 ## Security scan
@@ -354,7 +396,7 @@ CI runs Checkov on the Terraform. The fixed findings are:
 The findings accepted on purpose are listed with reasons in `infra/terraform/.checkov.yaml`. They fall into two groups:
 
 - **Cost.** Multi-AZ, enhanced monitoring, WAF, flow logs, load balancer access logs, customer-managed KMS keys, 1-year log retention, state bucket replication.
-- **Design.** Public addresses on tasks instead of a NAT gateway; an HTTP listener until a certificate is set; a disposable app layer without load-balancer deletion protection; a deploy role that can manage the services it deploys, usable only from approved runs of this repository.
+- **Design.** Public addresses on tasks instead of a NAT gateway; an HTTP listener until a certificate is set; a disposable app layer without load-balancer deletion protection; an unencrypted alert topic (CloudWatch cannot publish to one encrypted with the AWS-managed key); a deploy role with broad rights to the services it deploys. That role is limited as described under Security choices and usable only from approved runs of this repository.
 
 Recommended hardening when the budget allows:
 
@@ -365,10 +407,10 @@ Recommended hardening when the budget allows:
 
 ## Manual configuration checklist
 
-- [ ] Run the bootstrap stack and keep its local state file safe (step 1).
-- [ ] Create the `production` environment with required reviewers, allow only `main`, and set the variables (step 2).
+- [ ] Use an AWS account dedicated to this site.
+- [ ] Run the bootstrap stack with `alert_email`, keep its local state file safe, and click the subscription confirmation email (step 1).
+- [ ] Create the `production` environment with required reviewers and allow only `main`, **then** set the variables (step 2).
 - [ ] Get an ACM certificate, set `DOMAIN_NAME` and `CERTIFICATE_ARN`, and point DNS at the load balancer (step 4).
 - [ ] Verify the SES sender, get production access, store the SMTP password, and set the email variables (step 5).
 - [ ] Make yourself a curator (step 3).
-- [ ] Set an AWS Budgets alert so unexpected cost is noticed.
 - [ ] Run **AWS restore** in `verify` mode once to prove the backups work.

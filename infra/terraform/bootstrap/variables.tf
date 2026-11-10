@@ -33,3 +33,15 @@ variable "create_github_oidc_provider" {
   type        = bool
   default     = true
 }
+
+variable "alert_email" {
+  description = "Email address for alarms and the cost budget. Pass it with -var; never commit it."
+  type        = string
+  default     = ""
+}
+
+variable "monthly_budget_usd" {
+  description = "Monthly AWS cost budget in USD (before tax). Emails at 80% of actual and 100% of forecast spend."
+  type        = number
+  default     = 100
+}

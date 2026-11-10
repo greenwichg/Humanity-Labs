@@ -1,0 +1,7 @@
+# Keeps the GitHub Actions, which are pinned to exact commits, up to date through reviewed pull requests.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
