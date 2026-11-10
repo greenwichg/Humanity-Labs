@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # ---- Stylesheet build -------------------------------------------------------
-FROM node:22-slim AS css
+# The stylesheet is the same on every CPU, so build it on the build machine's own platform (fast under emulation).
+FROM --platform=$BUILDPLATFORM node:22-slim AS css
 WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund

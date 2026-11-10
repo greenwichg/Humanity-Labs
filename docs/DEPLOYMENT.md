@@ -23,10 +23,11 @@ All settings are environment variables prefixed `BATCHLIGHT_`. See `.env.example
 |---|---|
 | `BATCHLIGHT_ENV` | `production` |
 | `BATCHLIGHT_DATABASE_URL` | `postgresql+psycopg://user:password@host:5432/batchlight` |
+| `BATCHLIGHT_DB_POOL_SIZE`, `BATCHLIGHT_DB_MAX_OVERFLOW` | Connections per process, default 10 and 10. On a small database keep (pool + overflow) × all processes, counted twice for rolling deploys, under its connection limit. The AWS setup uses 5 and 5 |
 | `BATCHLIGHT_BASE_URL` | Public URL, e.g. `https://batchlight.example.org` (used in email links) |
 | `BATCHLIGHT_SECURE_COOKIES` | `true` (also enables HSTS) |
 | `BATCHLIGHT_TRUST_PROXY_HEADERS` | `true` only behind a proxy that appends to `X-Forwarded-For`; the app uses the rightmost entry. Also set `FORWARDED_ALLOW_IPS` to the proxy's address |
-| `BATCHLIGHT_EMAIL_BACKEND` | `smtp` |
+| `BATCHLIGHT_EMAIL_BACKEND` | `smtp`. With `console` in production nothing is sent, and only the masked recipient and subject are logged |
 | `BATCHLIGHT_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_STARTTLS` | From your email provider |
 | `BATCHLIGHT_EMAIL_FROM` | A sender address your provider has verified |
 | `BATCHLIGHT_OPENFDA_API_KEY` | Recommended; free from open.fda.gov, raises rate limits |

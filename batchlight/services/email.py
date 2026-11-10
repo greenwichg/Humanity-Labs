@@ -1,4 +1,4 @@
-"""Outbound email. The console backend logs messages, for development."""
+"""Outbound email. The console backend logs messages for development; in production it logs only the envelope."""
 
 from __future__ import annotations
 
@@ -19,6 +19,11 @@ class SendResult:
     error: str | None = None
 
 
+def _mask(address: str) -> str:
+    local, _, domain = address.partition("@")
+    return f"{local[:1]}***@{domain}" if domain else "***"
+
+
 def send_email(to: str, subject: str, text: str) -> SendResult:
     settings = get_settings()
     if settings.email_backend == "disabled":
@@ -29,6 +34,10 @@ def send_email(to: str, subject: str, text: str) -> SendResult:
     message["Subject"] = " ".join(subject.split())[:250]  # names are user input: no line breaks in headers
     message.set_content(text)
     if settings.email_backend == "console":
+        if settings.is_production:
+            # Nothing is delivered, and bodies hold sign-in, reset and invitation links, so log only the envelope.
+            log.warning("email not sent (console backend in production) to=%s subject=%s", _mask(to), subject)
+            return SendResult("skipped", "Email is not configured (console backend)")
         OUTBOX.append(message)
         del OUTBOX[:-100]
         log.info("email (console backend) to=%s subject=%s\n%s", to, subject, text)

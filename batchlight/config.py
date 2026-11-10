@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     secure_cookies: bool = False
     session_days: int = 30
     trust_proxy_headers: bool = False
+    # Connections per process: pool size plus overflow. Keep (web processes x tasks + worker + one-off tasks) x both
+    # under the database's connection limit.
+    db_pool_size: int = 10
+    db_max_overflow: int = 10
 
     # Email
     email_backend: Literal["console", "smtp", "disabled"] = "console"

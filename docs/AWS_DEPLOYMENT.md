@@ -2,7 +2,7 @@
 
 This guide covers the Terraform setup in `infra/terraform` and the GitHub Actions workflows that provision, update, back up, restore and tear down the site on AWS. The general application settings are in [DEPLOYMENT.md](DEPLOYMENT.md).
 
-**In short:** one small web container and one worker container on ECS Fargate behind an Application Load Balancer, with Amazon RDS for PostgreSQL in private subnets, in the Mumbai region (`ap-south-1`). It costs about **$77–82 a month** at low traffic, before tax ([estimate](#estimated-monthly-cost)). Every workflow that changes AWS waits for your approval. Database backups survive every teardown option.
+**In short:** one small web container and one worker container on ECS Fargate (ARM64/Graviton) behind an Application Load Balancer and AWS WAF, with Amazon RDS for PostgreSQL in private subnets, in the Mumbai region (`ap-south-1`). It costs about **$76–82 a month** at low traffic, before tax, or about $67–71 without WAF ([estimate](#estimated-monthly-cost)). Every workflow that changes AWS waits for your approval. Database backups survive every teardown option.
 
 ## What the application needs
 
@@ -39,10 +39,12 @@ The default instance is **db.t4g.micro** (2 vCPU burstable, 1 GiB memory, Single
 ## Architecture
 
 ```
-Internet ──► Application Load Balancer (public subnets, ports 80/443)
+Internet ──► AWS WAF (rate limit per address, AWS managed rules)
+                 ▼
+           Application Load Balancer (public subnets, ports 80/443)
                  │  only the load balancer may reach the tasks
                  ▼
-           ECS Fargate: web (1 task)    worker (1 task, Fargate Spot)    one-off tasks (migrate, seed, checks)
+           ECS Fargate, ARM64: web (1 task)    worker (1 task, Fargate Spot)    one-off tasks (migrate, seed, checks)
                  │  tasks have public addresses for OUTBOUND traffic only (no NAT gateway)
                  ▼
            RDS PostgreSQL 16 (private subnets, no internet route, TLS only, encrypted)
@@ -69,6 +71,12 @@ Security choices:
   It still has broad EC2, RDS and load-balancer rights, so **use an AWS account dedicated to this site** (for example a member account in AWS Organizations), not one shared with other systems.
 - **No exposed database.** The database has no public address, and its security group admits port 5432 only from the app's security group.
 - **Load balancer only.** Tasks accept traffic only from the load balancer. The load balancer drops invalid headers, and with a certificate it redirects HTTP to HTTPS (TLS 1.2/1.3 policy).
+- **WAF in front.** AWS WAF blocks:
+  - addresses on Amazon's IP reputation list;
+  - any address sending more than 3,000 requests in 5 minutes. The limit is generous because many Indian mobile users share addresses behind carrier-grade NAT;
+  - known exploit inputs, and requests matched by the AWS common rule set. The common set's request-body size rule only counts, so CSV imports still work.
+
+  Turn it off with `enable_waf = false` in the app stack, and tune the limit with `waf_rate_limit`.
 - **Secrets stay out of task definitions.** ECS reads them from Secrets Manager when a task starts.
 - **Encryption and scanning.** Storage, snapshots, state and images are encrypted. ECR scans images on push, and its tags are immutable.
 
@@ -115,6 +123,7 @@ terraform output         # note state_bucket, deploy_role_arn, backup_role_arn
 | `PROJECT` | default `humanity-labs` (names every resource) | no |
 | `DOMAIN_NAME`, `CERTIFICATE_ARN` | your domain and its ACM certificate (step 4) | for HTTPS |
 | `EMAIL_BACKEND`, `EMAIL_FROM`, `SMTP_HOST`, `SMTP_USERNAME` | step 5 | for email |
+| `CPU_ARCHITECTURE` | default `ARM64` (Graviton); set `X86_64` to switch back | no |
 | `DB_IDENTIFIER` | leave unset; only for [adopting a restored database](#adopt-a-promoted-database-into-terraform) | no |
 
 Until `AWS_DEPLOY_ROLE_ARN` exists, the automatic deploy and the backup workflows skip themselves.
@@ -150,7 +159,10 @@ Then:
 
 ### 5. Email (manual)
 
-Without these settings, emails (sign-up confirmation, alerts) are only written to the logs.
+Without these settings, no email is delivered:
+
+- The app logs only the masked recipient and subject of each email, never its body, because bodies contain sign-in, reset and invitation links.
+- Invitation screens show the link so you can share it yourself.
 
 1. In Amazon SES (`ap-south-1`), verify your sending domain or address and request production access. A new SES account can only send to verified addresses.
 2. Create SMTP credentials in SES.
@@ -185,6 +197,9 @@ Edit the Terraform under `infra/terraform/platform` or `infra/terraform/app` and
 |---|---|---|
 | `web_count`, `web_cpu`, `web_memory`, `web_concurrency` | app | 1 task, 0.25 vCPU, 512 MB, 2 processes |
 | `worker_cpu`, `worker_memory`, `worker_use_spot` | app | 0.25 vCPU, 2 GB, Spot |
+| `cpu_architecture` | app | `ARM64` (set by the `CPU_ARCHITECTURE` variable; the image is built to match) |
+| `db_pool_size`, `db_max_overflow` | app | 5 and 5 connections per process. That's at most 60 in total during a deploy, below the 70-connection alarm |
+| `enable_waf`, `waf_rate_limit` | app | on, 3,000 requests per 5 minutes per address |
 | `db_instance_class`, `db_multi_az`, `db_allocated_storage`, `db_max_allocated_storage` | platform | db.t4g.micro, Single-AZ, 20 GB, up to 100 GB |
 | `db_backup_retention_days` | platform | 35 (point-in-time recovery window, the RDS maximum) |
 | `log_retention_days`, `image_retention_count` | platform | 30 days, 30 images |
@@ -351,8 +366,8 @@ Prices are for `ap-south-1` from the AWS Price List API, retrieved in November 2
 
 | Item | Calculation | Per month |
 |---|---|---|
-| Web task (0.25 vCPU, 0.5 GB) | $0.04256/vCPU-h, $0.004655/GB-h | $9.47 |
-| Worker task (0.25 vCPU, 2 GB) | same rates, on-demand | up to $14.56 |
+| Web task (0.25 vCPU, 0.5 GB, ARM64) | $0.02383/vCPU-h, $0.00261/GB-h (x86 would be $0.04256 and $0.004655) | $5.30 |
+| Worker task (0.25 vCPU, 2 GB, ARM64) | same rates, on-demand | up to $8.16 |
 | Application Load Balancer | $0.0239/h + $0.008 per LCU-hour (about 0.1–0.5 LCU at low traffic) | $18.03–20.37 |
 | Public IPv4 addresses (load balancer ×2, web, worker) | 4 × $0.005/h | $14.60 |
 | RDS db.t4g.micro, Single-AZ | $0.021/h | $15.33 |
@@ -360,27 +375,28 @@ Prices are for `ap-south-1` from the AWS Price List API, retrieved in November 2
 | Backup storage (35 days of point-in-time recovery plus daily snapshots) | free up to the database's allocated storage (20 GB) while it exists, then $0.095/GB-month | $0 to start |
 | RDS CPU credits | db.t4g instances always run in Unlimited mode: CPU above the baseline is billed at $0.075 per vCPU-hour | $0 at low load; up to about $99 if the database ran at full CPU all month |
 | Alarms, alert emails, budget | 8 alarms (CloudWatch's free tier covers 10), SNS email, one budget | $0 |
+| AWS WAF | $5 per web ACL + $1 per rule (4 rules) + $0.60 per million requests | about $9.60–10.80 |
 | Secrets Manager, 3 secrets | $0.40 each + $0.05 per 10,000 reads | $1.20 |
 | ECR image storage | $0.10/GB-month, at most 30 images kept | about $0.50–1 |
 | CloudWatch Logs | $0.67/GB ingested, $0.03/GB-month stored, 30 days | about $1–2 |
 | Terraform state bucket, one-off tasks | | under $0.50 |
-| **Total** | | **about $77–82, or $91–97 with 18% GST** |
+| **Total** | | **about $76–82, or $90–97 with 18% GST** (about $67–71 without WAF) |
 
 Notes:
 
-- **Worker on Spot.** The worker runs on Fargate Spot by default, which is cheaper than the on-demand rate in the table. I did not verify the current Mumbai Spot price, so the table shows on-demand as the upper bound.
+- **Worker on Spot.** The worker runs on Fargate Spot by default (ARM64 tasks have been supported on Spot since September 2024), which is cheaper than the on-demand rate in the table. The Mumbai Spot price could not be verified, so the table shows on-demand as the upper bound.
+- **ARM64.** Graviton saves about $10.57 a month against x86 at on-demand rates. The image is built for ARM64 under emulation in GitHub Actions, and CI builds it on every push.
 - **Data transfer.** Data sent out to the internet beyond AWS's free monthly allowance is billed per GB. A low-traffic site stays inside it.
 - **What was left out to save money:**
   - a NAT gateway (billed per hour and per GB; the tasks use public addresses for outbound traffic instead);
   - Multi-AZ (would add about $15.33 plus storage);
-  - WAF;
   - Container Insights;
   - Performance Insights;
   - VPC flow logs;
   - customer-managed KMS keys.
 - **CPU credits.** The `db-cpu-surplus-charged` alarm tells you when credit charges start. If they persist, find the load or move to db.t4g.small.
 - **Cheaper options.**
-  - ARM (Graviton) Fargate costs $0.02383 per vCPU-hour and $0.00261 per GB-hour in Mumbai. That would bring the web task to $5.30 and the worker to $8.16, saving about $10.57 a month, but needs an arm64 image build.
+  - `enable_waf = false` saves about $10 a month, at the cost of rate limiting and the managed rules.
   - SSM Parameter Store instead of Secrets Manager would save $1.20 a month.
 - **Bigger options.** db.t4g.small costs $30.66 instead of $15.33. A second web task adds $9.47.
 
@@ -392,18 +408,20 @@ CI runs Checkov on the Terraform. The fixed findings are:
 - clean-up of incomplete uploads in the state bucket;
 - RDS log export to CloudWatch;
 - RDS IAM authentication enabled.
+- AWS WAF attached to the load balancer.
 
 The findings accepted on purpose are listed with reasons in `infra/terraform/.checkov.yaml`. They fall into two groups:
 
-- **Cost.** Multi-AZ, enhanced monitoring, WAF, flow logs, load balancer access logs, customer-managed KMS keys, 1-year log retention, state bucket replication.
+- **Cost.** Multi-AZ, enhanced monitoring, WAF request logs (metrics and sampled requests are on), flow logs, load balancer access logs, customer-managed KMS keys, 1-year log retention, state bucket replication.
 - **Design.** Public addresses on tasks instead of a NAT gateway; an HTTP listener until a certificate is set; a disposable app layer without load-balancer deletion protection; an unencrypted alert topic (CloudWatch cannot publish to one encrypted with the AWS-managed key); a deploy role with broad rights to the services it deploys. That role is limited as described under Security choices and usable only from approved runs of this repository.
 
 Recommended hardening when the budget allows:
 
-1. AWS WAF with the managed common rule set on the load balancer, because public search is not rate-limited by the app.
-2. Snapshot copies to a second region.
-3. Multi-AZ for the database.
-4. Rotating the database password: update the RDS master password and the `database-url` secret together, then force a new deployment.
+1. Snapshot copies to a second region.
+2. Multi-AZ for the database.
+3. Rotating the database password: update the RDS master password and the `database-url` secret together, then force a new deployment.
+
+Not adopted on purpose: AWS's anonymous-IP rule list. It would block VPN users and API clients on cloud hosts. Checkov's Log4j check (`CKV2_AWS_76`) asks for it, but the KnownBadInputs rules already block Log4j exploits.
 
 ## Manual configuration checklist
 

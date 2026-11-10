@@ -48,6 +48,14 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: docker build -t batchlight:ci .
+      # AWS runs the ARM64 (Graviton) image; build it here too so an ARM-only problem fails CI, not a deploy.
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        with:
+          platforms: arm64
+      - name: Build the ARM64 image
+        run: |
+          docker build --platform linux/arm64 -t batchlight:ci-arm64 .
+          docker run --rm --platform linux/arm64 --entrypoint python batchlight:ci-arm64 -c "import platform, batchlight.main; print('imports fine on', platform.machine())"
 
   infrastructure:
     runs-on: ubuntu-latest

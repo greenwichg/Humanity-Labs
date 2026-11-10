@@ -45,6 +45,9 @@ env:
   TF_VAR_email_from: ${{ vars.EMAIL_FROM || 'Humanity Labs <alerts@example.org>' }}
   TF_VAR_smtp_host: ${{ vars.SMTP_HOST }}
   TF_VAR_smtp_username: ${{ vars.SMTP_USERNAME }}
+  # ARM64 (Graviton) is the default; set the repository variable CPU_ARCHITECTURE=X86_64 to switch back.
+  CPU_ARCHITECTURE: ${{ vars.CPU_ARCHITECTURE || 'ARM64' }}
+  TF_VAR_cpu_architecture: ${{ vars.CPU_ARCHITECTURE || 'ARM64' }}
 
 jobs:
   deploy:
@@ -114,17 +117,27 @@ jobs:
       - name: Log in to ECR
         uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
 
+      - name: Set up ARM64 emulation for the image build
+        if: env.CPU_ARCHITECTURE == 'ARM64'
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        with:
+          platforms: arm64
+
       - name: Build and push the image (skipped if this commit is already built)
         id: image
         env:
           REPO_URL: ${{ steps.platform.outputs.ecr_repository_url }}
           REPO_NAME: ${{ steps.platform.outputs.ecr_repository_name }}
-          TAG: ${{ inputs.ref }}
+          REF: ${{ inputs.ref }}
         run: |
+          # The tag names the architecture: tags are immutable, so switching CPU_ARCHITECTURE must not reuse an image
+          # built for the other one.
+          if [ "$CPU_ARCHITECTURE" = "ARM64" ]; then PLATFORM=linux/arm64; else PLATFORM=linux/amd64; fi
+          TAG="${REF}-${PLATFORM#linux/}"
           if aws ecr describe-images --repository-name "$REPO_NAME" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
             echo "Image $TAG already in ECR"
           else
-            docker build --platform linux/amd64 -t "$REPO_URL:$TAG" .
+            docker build --platform "$PLATFORM" -t "$REPO_URL:$TAG" .
             docker push "$REPO_URL:$TAG"
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"

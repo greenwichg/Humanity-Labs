@@ -99,3 +99,37 @@ variable "smtp_username" {
   type    = string
   default = ""
 }
+
+variable "cpu_architecture" {
+  description = "ARM64 (Graviton, about 44% cheaper per vCPU-hour in Mumbai) or X86_64. Must match the image the deploy workflow builds (repository variable CPU_ARCHITECTURE)."
+  type        = string
+  default     = "ARM64"
+  validation {
+    condition     = contains(["ARM64", "X86_64"], var.cpu_architecture)
+    error_message = "cpu_architecture must be ARM64 or X86_64."
+  }
+}
+
+variable "db_pool_size" {
+  description = "Database connections kept open per process. With the defaults, at most (2 web processes x 2 tasks during a deploy + worker + one one-off task) x 10 = 60 connections."
+  type        = number
+  default     = 5
+}
+
+variable "db_max_overflow" {
+  description = "Extra database connections a process may open under load, on top of db_pool_size."
+  type        = number
+  default     = 5
+}
+
+variable "enable_waf" {
+  description = "Put AWS WAF in front of the load balancer: a per-address rate limit plus AWS managed rules (about $9 a month plus $0.60 per million requests)."
+  type        = bool
+  default     = true
+}
+
+variable "waf_rate_limit" {
+  description = "Requests per 5 minutes from one IP address before WAF blocks it. Kept generous because many Indian mobile users share addresses (carrier-grade NAT)."
+  type        = number
+  default     = 3000
+}
