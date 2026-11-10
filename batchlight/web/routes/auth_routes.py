@@ -16,7 +16,7 @@ from ...db import session_scope
 from ...models import ORG_KINDS, AuditEvent, Invitation, Membership, Organization, PasswordReset, Session_, User
 from ...security import hash_password, new_token, password_problem, token_hash, verify_password
 from ...services import audit
-from ...services.email import send_email
+from ...services.email import SendResult, log_delivery_failure, redact, send_email
 from ..auth import CSRF, DB, OptionalAuth, client_ip, create_session, destroy_session, flash, safe_next
 from ..countries import COUNTRIES, valid_country
 from ..templating import render
@@ -189,8 +189,10 @@ def forgot(request: Request, db: DB, background: BackgroundTasks, email: Text = 
         )
         if recent < 3:
             token = new_token()
+            # Created unusable (already expired). Only a confirmed send makes it work, so a failed send, an error in
+            # the background task or a crashed process can never leave a working link behind.
             reset_row = PasswordReset(
-                user_id=user.id, token_hash=token_hash(token), expires_at=datetime.now(UTC) + timedelta(hours=1)
+                user_id=user.id, token_hash=token_hash(token), expires_at=datetime.now(UTC) - timedelta(seconds=1)
             )
             db.add(reset_row)
             db.flush()
@@ -203,25 +205,41 @@ def forgot(request: Request, db: DB, background: BackgroundTasks, email: Text = 
 
 
 def deliver_password_reset(reset_id, user_id, address: str, full_name: str, token: str) -> None:
-    """Runs after the response. If the email does not go out, the link stops working (it still counts towards the
-    hourly limit) and the failure is audited and logged by user ID, never by address."""
+    """Runs after the response. The link starts working only once the email has gone out; otherwise it stays
+    expired (still counting towards the hourly limit). Outcomes are audited and logged by user ID, never by address:
+    password_reset_email_sent or password_reset_email_failed. A request with neither was cut off (for example by a
+    restart) and its link never worked."""
     link = f"{get_settings().base_url}/reset-password/{token}"
-    result = send_email(
-        address,
-        "Reset your Batchlight password",
-        f"Hello {full_name},\n\nUse this link within one hour to choose a new password:\n{link}\n\n"
-        "If you didn't ask for this, you can ignore this email.",
-    )
-    if result.status == "sent":
-        return
-    with session_scope() as session:
-        reset_row = session.get(PasswordReset, reset_id)
-        if reset_row is not None:
-            reset_row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
-        audit.record(
-            session, "password_reset_email_failed", user_id=user_id, status=result.status, error=(result.error or "")[:200]
+    try:
+        result = send_email(
+            address,
+            "Reset your Batchlight password",
+            f"Hello {full_name},\n\nUse this link within one hour to choose a new password:\n{link}\n\n"
+            "If you didn't ask for this, you can ignore this email.",
         )
-    log.warning("password reset email not delivered: user_id=%s status=%s", user_id, result.status)
+    except Exception as exc:  # noqa: BLE001 - any error must end as a recorded failure, not an unaccounted request
+        result = SendResult("failed", redact(f"{type(exc).__name__}: {exc}")[:300])
+        log_delivery_failure(address, result.error)
+    try:
+        with session_scope() as session:
+            if result.status == "sent":
+                reset_row = session.get(PasswordReset, reset_id)
+                if reset_row is not None and reset_row.used_at is None:
+                    reset_row.expires_at = datetime.now(UTC) + timedelta(hours=1)
+                audit.record(session, "password_reset_email_sent", user_id=user_id)
+            else:
+                audit.record(
+                    session,
+                    "password_reset_email_failed",
+                    user_id=user_id,
+                    status=result.status,
+                    error=redact(result.error or "")[:200],
+                )
+    except Exception:  # noqa: BLE001 - the link stays unusable; say so in the log
+        log.exception("password reset outcome not recorded: user_id=%s status=%s", user_id, result.status)
+        return
+    if result.status != "sent":
+        log.warning("password reset email not delivered: user_id=%s status=%s", user_id, result.status)
 
 
 def _valid_reset(db, token: str) -> PasswordReset | None:

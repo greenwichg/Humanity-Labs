@@ -70,12 +70,14 @@ resource "aws_cloudwatch_metric_alarm" "db_connections_high" {
   ok_actions          = [local.alerts_topic_arn]
 }
 
-# Failed email deliveries (password resets, invitations, alert digests). The app logs a fixed marker with the
-# address masked, so this counts failures without anything in the logs or the alarm showing who they were for.
+# Failed email deliveries (password resets, invitations, alert digests). The app logs them as
+# "<time> WARNING batchlight.email EMAIL_DELIVERY_FAILED to=p***@example.org error=..." (address masked). The whole
+# phrase is matched, not just the word, because the web server's access log records request paths: a visitor could
+# put the word in a URL, but not the spaces (uvicorn percent-encodes them).
 resource "aws_cloudwatch_log_metric_filter" "email_delivery_failed" {
   name           = "${var.project}-email-delivery-failed"
   log_group_name = aws_cloudwatch_log_group.app.name
-  pattern        = "\"EMAIL_DELIVERY_FAILED\""
+  pattern        = "\"WARNING batchlight.email EMAIL_DELIVERY_FAILED\""
   metric_transformation {
     name      = "EmailDeliveryFailed"
     namespace = "HumanityLabs"

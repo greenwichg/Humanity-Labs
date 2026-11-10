@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import smtplib
 from dataclasses import dataclass
 from email.message import EmailMessage
@@ -10,6 +11,11 @@ from email.message import EmailMessage
 from ..config import get_settings
 
 log = logging.getLogger("batchlight.email")
+# Every failed delivery is logged by this logger at WARNING with this word first in the message, so each process's
+# log format produces "WARNING batchlight.email EMAIL_DELIVERY_FAILED". The CloudWatch metric filter in
+# infra/terraform/platform/monitoring.tf matches that whole phrase (a request path cannot forge it: uvicorn's access log
+# percent-encodes spaces) and an alarm notifies operators. Keep the two in step.
+DELIVERY_FAILED_MARKER = "EMAIL_DELIVERY_FAILED"
 OUTBOX: list[EmailMessage] = []  # console backend keeps the last messages for tests and debugging
 
 
@@ -58,13 +64,27 @@ def check_smtp_login(settings) -> str | None:
     except smtplib.SMTPAuthenticationError as exc:
         return f"the SMTP user name or password was refused ({exc.smtp_code})"
     except (OSError, smtplib.SMTPException) as exc:
-        return f"{type(exc).__name__}: {exc}"[:300]
+        return redact(f"{type(exc).__name__}: {exc}")[:300]  # printed in the public deploy log
     return None
 
 
-def _mask(address: str) -> str:
+# Practical address characters only, so quotes and braces around an address in exception text are left alone.
+EMAIL_ADDRESS = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+
+
+def mask_address(address: str) -> str:
     local, _, domain = address.partition("@")
     return f"{local[:1]}***@{domain}" if domain else "***"
+
+
+def redact(text: str) -> str:
+    """Mask every email address (SMTP errors often echo the recipient or sender) and keep it to one line, so
+    nothing in logs or audit records identifies a person and nothing can forge an extra log line."""
+    return " ".join(EMAIL_ADDRESS.sub(lambda m: mask_address(m.group(0)), text).split())
+
+
+def log_delivery_failure(to: str, error: str) -> None:
+    log.warning("%s to=%s error=%s", DELIVERY_FAILED_MARKER, mask_address(to), redact(error)[:300])
 
 
 def send_email(to: str, subject: str, text: str) -> SendResult:
@@ -79,7 +99,7 @@ def send_email(to: str, subject: str, text: str) -> SendResult:
     if settings.email_backend == "console":
         if settings.is_production:
             # Nothing is delivered, and bodies hold sign-in, reset and invitation links, so log only the envelope.
-            log.warning("email not sent (console backend in production) to=%s subject=%s", _mask(to), subject)
+            log.warning("email not sent (console backend in production) to=%s subject=%s", mask_address(to), subject)
             return SendResult("skipped", "Email is not configured (console backend)")
         OUTBOX.append(message)
         del OUTBOX[:-100]
@@ -94,6 +114,6 @@ def send_email(to: str, subject: str, text: str) -> SendResult:
             smtp.send_message(message)
         return SendResult("sent")
     except (OSError, smtplib.SMTPException) as exc:
-        # A fixed marker for the CloudWatch metric filter and alarm; the address is masked.
-        log.warning("EMAIL_DELIVERY_FAILED to=%s error=%s", _mask(to), str(exc)[:200])
-        return SendResult("failed", str(exc)[:500])
+        error = redact(f"{type(exc).__name__}: {exc}")[:300]
+        log_delivery_failure(to, error)
+        return SendResult("failed", error)

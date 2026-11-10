@@ -304,3 +304,241 @@ def test_invitation_message_matches_the_delivery_result(client, monkeypatch, sta
     assert expected in html.unescape(response.text)
     assert ("Invitation emailed" in response.text) == (status == "sent")  # never claimed unless it went out
     assert "/invite/" in response.text  # the link is always shown so the inviter can pass it on
+
+
+# --------------------------------------------------------------------------- review of 97579e6: redaction, crashes, metric
+
+
+ADDRESS = "person@example.org"
+SMTP_ERRORS = [
+    smtplib.SMTPRecipientsRefused({ADDRESS: (550, f"5.1.1 <{ADDRESS}>: Recipient address rejected".encode())}),
+    smtplib.SMTPSenderRefused(550, b"5.7.1 Sender <alerts@humanitylabs.in> not verified", "alerts@humanitylabs.in"),
+    smtplib.SMTPDataError(554, f"Message rejected: not verified: {ADDRESS}\r\nINJECTED EMAIL_DELIVERY_FAILED".encode()),
+]
+
+
+def refusing_smtp(exc):
+    class Refusing(FakeSMTP):
+        def send_message(self, *a, **k):
+            raise exc
+
+    return Refusing
+
+
+@pytest.mark.parametrize("exc", SMTP_ERRORS, ids=lambda e: type(e).__name__)
+def test_smtp_errors_never_put_addresses_in_logs_or_results(settings_env, monkeypatch, caplog, exc):
+    settings_env(**{**PRODUCTION_SMTP, "BATCHLIGHT_ENV": "test"})
+    monkeypatch.setattr(email.smtplib, "SMTP", refusing_smtp(exc))
+    with caplog.at_level("WARNING", logger="batchlight.email"):
+        result = email.send_email(ADDRESS, "Reset your Batchlight password", "link")
+    assert result.status == "failed"
+    for text in (caplog.text, result.error):
+        assert ADDRESS not in text and "alerts@humanitylabs.in" not in text
+    assert "p***@example.org" in caplog.text
+    assert len(caplog.records) == 1 and "\n" not in caplog.records[0].getMessage()  # one line, nothing injected
+
+
+def test_redact_masks_every_address_and_flattens_lines():
+    text = "{'a.b+c@x.example.in': (550, b'<A.B+C@X.EXAMPLE.IN> rejected')}\r\nsecond <z@y.org>"
+    out = email.redact(text)
+    assert "a.b+c@x.example.in" not in out and "A.B+C@X.EXAMPLE.IN" not in out and "z@y.org" not in out
+    assert "a***@x.example.in" in out and "z***@y.org" in out
+    assert "\n" not in out and "\r" not in out
+
+
+def test_audit_gets_redacted_smtp_errors(client, make_client, db, settings_env, monkeypatch):
+    signup(client)
+    settings_env(BATCHLIGHT_EMAIL_BACKEND="smtp", BATCHLIGHT_SMTP_HOST="smtp.test", BATCHLIGHT_SMTP_USERNAME="u")
+    monkeypatch.setattr(email.smtplib, "SMTP", refusing_smtp(SMTP_ERRORS[0]))
+    post_form(make_client(), "/forgot-password", {"email": OWNER})
+    events = db.scalars(select(AuditEvent).where(AuditEvent.action == "password_reset_email_failed")).all()
+    assert len(events) == 1
+    stored = str(events[0].data)
+    assert OWNER not in stored and "person" not in stored
+    assert "SMTPRecipientsRefused" in stored
+
+
+def capture_token(monkeypatch):
+    from batchlight.web.routes import auth_routes
+
+    tokens = []
+    real = auth_routes.new_token
+
+    def remember():
+        tokens.append(real())
+        return tokens[-1]
+
+    monkeypatch.setattr(auth_routes, "new_token", remember)
+    return tokens
+
+
+def link_works(make_client, token) -> bool:
+    visitor = make_client()
+    return post_form(visitor, f"/reset-password/{token}", {"password": "a brand new passphrase"}).status_code == 303
+
+
+def test_link_never_works_if_the_background_task_never_runs(client, make_client, db, monkeypatch):
+    """A crash or restart after the response but before delivery must not leave a working link."""
+    from batchlight.web.routes import auth_routes
+
+    signup(client)
+    tokens = capture_token(monkeypatch)
+    monkeypatch.setattr(auth_routes, "deliver_password_reset", lambda *a, **k: None)
+    post_form(make_client(), "/forgot-password", {"email": OWNER})
+    assert len(tokens) == 1
+    assert not link_works(make_client, tokens[0])
+    actions = db.scalars(select(AuditEvent.action)).all()
+    assert "password_reset_email_sent" not in actions and "password_reset_email_failed" not in actions
+
+
+def test_unexpected_error_while_sending_is_recorded_and_leaves_no_link(client, make_client, db, monkeypatch, caplog):
+    from batchlight.web.routes import auth_routes
+
+    signup(client)
+    tokens = capture_token(monkeypatch)
+
+    def explode(*a, **k):
+        raise ValueError(f"bad header for {OWNER}")
+
+    monkeypatch.setattr(auth_routes, "send_email", explode)
+    with caplog.at_level("WARNING"):
+        status, *_ = forgot(make_client(), OWNER)  # the error does not reach the visitor
+    assert status == 200
+    assert not link_works(make_client, tokens[0])
+    event = db.scalar(select(AuditEvent).where(AuditEvent.action == "password_reset_email_failed"))
+    assert event is not None and "ValueError" in str(event.data) and OWNER not in str(event.data)
+    assert OWNER not in caplog.text
+    failure = [r for r in caplog.records if r.getMessage().startswith("EMAIL_DELIVERY_FAILED")]
+    assert len(failure) == 1 and failure[0].name == "batchlight.email"  # so the metric filter's phrase matches
+
+
+def test_database_failure_after_sending_leaves_the_link_unusable(client, make_client, db, monkeypatch, caplog):
+    """The email went out but the outcome could not be saved: the link must not work and nothing claims a send."""
+    from contextlib import contextmanager
+
+    from batchlight.web.routes import auth_routes
+
+    signup(client)
+    tokens = capture_token(monkeypatch)
+
+    @contextmanager
+    def database_down():
+        raise ConnectionError("database unavailable")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(auth_routes, "session_scope", database_down)
+    with caplog.at_level("ERROR", logger="batchlight.auth"):
+        status, *_ = forgot(make_client(), OWNER)
+    assert status == 200
+    assert len(OUTBOX) == 1  # it was delivered ...
+    assert not link_works(make_client, tokens[0])  # ... but the link fails closed
+    assert "password reset outcome not recorded" in caplog.text
+    assert "password_reset_email_sent" not in db.scalars(select(AuditEvent.action)).all()
+
+
+def test_sent_link_works_and_the_send_is_audited(client, make_client, db, monkeypatch):
+    signup(client)
+    tokens = capture_token(monkeypatch)
+    post_form(make_client(), "/forgot-password", {"email": OWNER})
+    assert "password_reset_email_sent" in db.scalars(select(AuditEvent.action)).all()
+    assert link_works(make_client, tokens[0])
+
+
+# --------------------------------------------------------------------------- the metric filter matches what the app logs
+
+
+def metric_filter_term() -> str:
+    import pathlib
+
+    source = (pathlib.Path(__file__).resolve().parents[2] / "infra/terraform/platform/monitoring.tf").read_text()
+    pattern = re.search(
+        r'resource "aws_cloudwatch_log_metric_filter" "email_delivery_failed".*?pattern\s*=\s*"(.*?)"\n', source, re.S
+    )
+    raw = pattern.group(1).replace('\\"', '"')
+    assert raw.startswith('"') and raw.endswith('"') and raw.count('"') == 2, raw  # one quoted term
+    return raw.strip('"')
+
+
+def log_formats() -> dict[str, str]:
+    """The format strings the web, worker and one-off (cli) processes actually configure."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[2] / "batchlight"
+    found = {}
+    for name in ("main.py", "worker.py", "cli.py"):
+        match = re.search(r'basicConfig\([^)]*format="([^"]+)"', (root / name).read_text())
+        assert match, f"no logging format in {name}"
+        found[name] = match.group(1)
+    return found
+
+
+def test_metric_filter_phrase_is_what_the_code_logs():
+    assert metric_filter_term() == f"WARNING {email.log.name} {email.DELIVERY_FAILED_MARKER}"
+
+
+def test_request_paths_in_the_access_log_cannot_trigger_the_alarm():
+    """uvicorn writes every request to the same log group; a visitor controls the path and query string."""
+    from uvicorn.protocols.utils import get_path_with_query_string
+
+    phrase = metric_filter_term()
+    for path, query in [
+        ("/EMAIL_DELIVERY_FAILED", b""),
+        ("/WARNING batchlight.email EMAIL_DELIVERY_FAILED", b""),
+        ("/x", b"q=WARNING+batchlight.email+EMAIL_DELIVERY_FAILED"),
+        ("/x", b"q=WARNING%20batchlight.email%20EMAIL_DELIVERY_FAILED"),
+    ]:
+        scope = {"type": "http", "path": path, "query_string": query}
+        line = f'203.0.113.9:4321 - "GET {get_path_with_query_string(scope)} HTTP/1.1" 404'  # uvicorn's access format
+        assert phrase not in line, line
+
+
+@pytest.mark.parametrize("exc", SMTP_ERRORS, ids=lambda e: type(e).__name__)
+def test_every_process_log_format_produces_a_matching_single_line_event(settings_env, monkeypatch, caplog, exc):
+    import logging
+
+    settings_env(**{**PRODUCTION_SMTP, "BATCHLIGHT_ENV": "test"})
+    monkeypatch.setattr(email.smtplib, "SMTP", refusing_smtp(exc))
+    with caplog.at_level("WARNING", logger="batchlight.email"):
+        email.send_email(ADDRESS, "subject", "body")
+    record = caplog.records[-1]
+    term = metric_filter_term()
+    for process, fmt in log_formats().items():
+        line = logging.Formatter(fmt).format(record)
+        # CloudWatch receives one event per line from the awslogs driver; the quoted term must be a whole word in it.
+        assert "\n" not in line, process
+        assert term in line, (process, line)
+        assert ADDRESS not in line
+
+
+def test_web_process_writes_the_marker_line_to_stderr():
+    """End to end in a real web process: import the app (which configures logging) and fail a delivery."""
+    script = f"""
+import smtplib
+import batchlight.main  # configures logging as uvicorn's workers do
+from batchlight.services import email
+class Refusing:
+    def __init__(self, *a, **k): pass
+    def __enter__(self): return self
+    def __exit__(self, *a): pass
+    def starttls(self): pass
+    def login(self, *a): pass
+    def send_message(self, *a, **k):
+        raise smtplib.SMTPRecipientsRefused({{'{ADDRESS}': (550, b'<{ADDRESS}> rejected')}})
+email.smtplib.SMTP = Refusing
+email.send_email('{ADDRESS}', 'subject', 'body')
+"""
+    import os
+    import subprocess
+
+    env = os.environ | {
+        "BATCHLIGHT_EMAIL_BACKEND": "smtp",
+        "BATCHLIGHT_SMTP_HOST": "smtp.test",
+        "BATCHLIGHT_SMTP_USERNAME": "u",
+        "BATCHLIGHT_SMTP_PASSWORD": "p",
+    }
+    result = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr[-1000:]
+    lines = [line for line in result.stderr.splitlines() if metric_filter_term() in line]
+    assert len(lines) == 1, result.stderr[-1000:]
+    assert " WARNING batchlight.email EMAIL_DELIVERY_FAILED to=p***@example.org " in lines[0]
+    assert ADDRESS not in result.stderr

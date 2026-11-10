@@ -303,13 +303,13 @@ Nine CloudWatch alarms email the address you gave the bootstrap stack. Nine alar
 | `<project>-db-cpu-high` | database CPU above 80% for 15 minutes |
 | `<project>-db-cpu-surplus-charged` | the burstable database is spending CPU credits that AWS bills |
 | `<project>-db-connections-high` | more than 70 database connections |
-| `<project>-email-delivery-failed` | any email (password reset, invitation or alert) failed to send in 5 minutes. It counts the app's `EMAIL_DELIVERY_FAILED` log lines, which mask the address |
+| `<project>-email-delivery-failed` | any email (password reset, invitation or alert) failed to send in 5 minutes. It counts log lines containing `WARNING batchlight.email EMAIL_DELIVERY_FAILED`. Matching the whole phrase means a visitor can't trigger it by putting the word in a URL. Addresses in these lines and in SMTP error text are masked |
 
 Other notices:
 
 - **Cost.** The monthly budget emails at 80% of actual spend and at 100% of forecast spend.
 - **Failed GitHub runs.** GitHub emails failures of scheduled workflows (the daily backup) to the person who last changed the schedule, and failures of other runs to whoever started them.
-- **Password resets.** Because the reset page looks the same in every case, check the audit log (the `audit_events` table) for what really happened. It records, by user ID, `password_reset_requested`, `password_reset_rate_limited` and `password_reset_email_failed` (with the delivery status). The application log has a matching `password reset email not delivered` line, also by user ID.
+- **Password resets.** Because the reset page looks the same in every case, check the audit log (the `audit_events` table) for what really happened. It records, by user ID, `password_reset_requested`, `password_reset_rate_limited`, and then either `password_reset_email_sent` or `password_reset_email_failed` (with the delivery status and a redacted error). A request with neither outcome was cut off, for example by a restart. Its link never worked, because links start out unusable and only become valid once the email has gone out. The application log has a matching `password reset email not delivered` line, also by user ID.
 
 ## Backups
 

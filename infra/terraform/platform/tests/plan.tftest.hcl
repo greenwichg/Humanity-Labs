@@ -57,7 +57,7 @@ run "smtp_credentials_come_from_the_bootstrap_secret" {
 run "failed_email_deliveries_raise_an_alarm" {
   command = plan
   assert {
-    condition     = aws_cloudwatch_log_metric_filter.email_delivery_failed.pattern == "\"EMAIL_DELIVERY_FAILED\"" && aws_cloudwatch_log_metric_filter.email_delivery_failed.log_group_name == "/ecs/humanity-labs"
+    condition     = aws_cloudwatch_log_metric_filter.email_delivery_failed.pattern == "\"WARNING batchlight.email EMAIL_DELIVERY_FAILED\"" && aws_cloudwatch_log_metric_filter.email_delivery_failed.log_group_name == "/ecs/humanity-labs"
     error_message = "the metric filter must count the app's EMAIL_DELIVERY_FAILED log lines"
   }
   assert {
