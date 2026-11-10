@@ -82,7 +82,26 @@ Security choices:
 
 ## One-time setup
 
-You need an AWS account, AWS CLI v2 with administrator credentials on your own machine, Terraform 1.10 or newer (the workflows use 1.17.1), and admin rights on the GitHub repository.
+You need:
+
+- an AWS account dedicated to this site;
+- AWS CLI v2 signed in as an administrator of that account, on your own machine;
+- Terraform 1.10 or newer (the workflows use 1.17.1);
+- the GitHub CLI (`gh`) signed in as an admin of the repository.
+
+**Quickest route for steps 1 and 2:** one command that does both, in the safe order:
+
+```bash
+infra/scripts/bootstrap.sh --alert-email you@example.org     # optional: --region ap-south-1 --budget 100
+```
+
+It asks you to type the AWS account ID to confirm the account. Then it:
+
+1. protects the `production` environment (you as required reviewer, `main` only) and checks that the protection is in place;
+2. runs the bootstrap stack (Terraform shows its plan and asks before changing anything);
+3. sets `AWS_REGION`, `TF_STATE_BUCKET` and `AWS_BACKUP_ROLE_ARN`, then `AWS_DEPLOY_ROLE_ARN` last, which switches on deploys.
+
+It stops before changing anything if the account ID doesn't match or you aren't a repository admin. It is safe to run again. The manual equivalent follows.
 
 ### 1. Bootstrap (from your machine, once)
 
