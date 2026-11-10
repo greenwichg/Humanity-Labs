@@ -8,6 +8,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend ./frontend
 COPY batchlight/templates ./batchlight/templates
+COPY batchlight/static/app.js ./batchlight/static/app.js
 RUN npx tailwindcss -i frontend/app.css -o app.css --minify
 
 # ---- Application ------------------------------------------------------------

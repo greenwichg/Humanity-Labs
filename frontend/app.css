@@ -1,5 +1,7 @@
-@import "tailwindcss";
+/* Scan only these sources, so docs or infrastructure files elsewhere in the repository cannot change the build. */
+@import "tailwindcss" source(none);
 @source "../batchlight/templates";
+@source "../batchlight/static/app.js";
 /* Classes assembled in templates, e.g. sev-{{ alert.severity }}, are invisible to the scanner. */
 @source inline("sev-{critical,high,moderate,low,info} stripe-{critical,high,moderate,low,info}");
 
