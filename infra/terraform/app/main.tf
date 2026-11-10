@@ -30,7 +30,7 @@ resource "aws_iam_role_policy" "execution_secrets" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["secretsmanager:GetSecretValue"]
-      Resource = [local.platform.database_url_secret_arn, local.platform.app_secret_key_arn, local.platform.smtp_password_secret_arn]
+      Resource = [local.platform.database_url_secret_arn, local.platform.app_secret_key_arn, local.platform.smtp_secret_arn]
     }]
   })
 }
@@ -46,18 +46,19 @@ locals {
     { name = "BATCHLIGHT_TRUST_PROXY_HEADERS", value = "true" },
     { name = "FORWARDED_ALLOW_IPS", value = "*" }, # only the load balancer can reach the tasks
     { name = "WEB_CONCURRENCY", value = tostring(var.web_concurrency) },
-    { name = "BATCHLIGHT_EMAIL_BACKEND", value = var.email_backend },
+    { name = "BATCHLIGHT_EMAIL_BACKEND", value = "smtp" }, # production requires working email (see email-check)
     { name = "BATCHLIGHT_EMAIL_FROM", value = var.email_from },
-    { name = "BATCHLIGHT_SMTP_HOST", value = var.smtp_host },
+    { name = "BATCHLIGHT_SMTP_HOST", value = var.smtp_host != "" ? var.smtp_host : "email-smtp.${var.aws_region}.amazonaws.com" },
     { name = "BATCHLIGHT_SMTP_PORT", value = tostring(var.smtp_port) },
-    { name = "BATCHLIGHT_SMTP_USERNAME", value = var.smtp_username },
     { name = "BATCHLIGHT_DB_POOL_SIZE", value = tostring(var.db_pool_size) },
     { name = "BATCHLIGHT_DB_MAX_OVERFLOW", value = tostring(var.db_max_overflow) },
   ]
   secrets = [
     { name = "BATCHLIGHT_DATABASE_URL", valueFrom = local.platform.database_url_secret_arn },
     { name = "BATCHLIGHT_SECRET_KEY", valueFrom = local.platform.app_secret_key_arn },
-    { name = "BATCHLIGHT_SMTP_PASSWORD", valueFrom = local.platform.smtp_password_secret_arn },
+    # The SMTP user name is an access key ID, so it comes from the secret too and stays out of the public deploy logs.
+    { name = "BATCHLIGHT_SMTP_USERNAME", valueFrom = "${local.platform.smtp_secret_arn}:username::" },
+    { name = "BATCHLIGHT_SMTP_PASSWORD", valueFrom = "${local.platform.smtp_secret_arn}:password::" },
   ]
   logs = {
     logDriver = "awslogs"

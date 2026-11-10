@@ -27,6 +27,10 @@ def main(argv: list[str] | None = None) -> int:
         "seed-india", aliases=["seed-food-india"], help="load the hand-checked Indian medicine and food alerts (idempotent)"
     )
     sub.add_parser("db-check", help="read-only: print the schema revision and row counts (used to verify restores)")
+    sub.add_parser(
+        "email-check",
+        help="check production email settings and that the SMTP login works, without sending anything (run before deploys)",
+    )
     infra = sub.add_parser("infra-ingest", help="refresh public infrastructure sources now")
     infra.add_argument("--source", action="append", help="infra-wb-projects, infra-wb-civil-works or infra-cag-reports")
     infra.add_argument("--cag-pages", type=int, default=None, help="how many pages of the CAG report list to read")
@@ -50,6 +54,22 @@ def main(argv: list[str] | None = None) -> int:
         with session_scope() as session:
             created, updated, matched = seed_india_alerts(session)
         print(f"Indian alerts: {created} created, {updated} updated, {matched} new stock matches")
+        return 0
+    if args.command == "email-check":
+        from .config import get_settings
+        from .services.email import check_smtp_login, production_email_problems
+
+        settings = get_settings()
+        problems = production_email_problems(settings)
+        for problem in problems:
+            print(f"email-check: {problem}")
+        if problems:
+            return 1
+        error = check_smtp_login(settings)
+        if error:
+            print(f"email-check: SMTP login to {settings.smtp_host}:{settings.smtp_port} failed: {error}")
+            return 1
+        print(f"email-check: SMTP login to {settings.smtp_host}:{settings.smtp_port} over STARTTLS works; nothing was sent.")
         return 0
     if args.command == "db-check":
         import json

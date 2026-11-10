@@ -17,6 +17,7 @@ from .config import get_settings
 from .db import session_factory, session_scope
 from .ingest import REGISTRY, ensure_sources, run_source
 from .models import Source
+from .services.email import production_email_problems
 
 log = logging.getLogger("batchlight.worker")
 _stop = False
@@ -67,6 +68,10 @@ def main() -> None:
     parser.add_argument("--source", action="append", help="limit to a source id (repeatable)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    settings = get_settings()
+    if settings.is_production and (problems := production_email_problems(settings)):
+        # The worker sends the alert emails; refuse to run in production without working email.
+        raise SystemExit("Email is not set up for production: " + "; ".join(problems))
 
     def stop(*_):
         global _stop

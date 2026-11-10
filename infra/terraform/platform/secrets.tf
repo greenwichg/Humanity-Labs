@@ -1,6 +1,6 @@
 # Secrets are read by ECS when a task starts and are never written to the task definition.
 # The database URL is written once by Terraform. The restore workflow may later point it at a restored database,
-# so Terraform does not overwrite later edits (ignore_changes). The SMTP password is set by hand after setup.
+# so Terraform does not overwrite later edits (ignore_changes).
 
 resource "random_password" "app_secret_key" {
   length  = 64
@@ -30,14 +30,7 @@ resource "aws_secretsmanager_secret_version" "app_secret_key" {
   secret_string = random_password.app_secret_key.result
 }
 
-resource "aws_secretsmanager_secret" "smtp_password" {
-  name                    = "${var.project}/smtp-password"
-  description             = "SMTP password (for example Amazon SES SMTP credentials). Set by hand; see docs/AWS_DEPLOYMENT.md."
-  recovery_window_in_days = 0 # regenerated on rebuild; a waiting period would block re-provisioning under the same name
-}
-
-resource "aws_secretsmanager_secret_version" "smtp_password" {
-  secret_id     = aws_secretsmanager_secret.smtp_password.id
-  secret_string = "not-set"
-  lifecycle { ignore_changes = [secret_string] }
+# SES SMTP credentials: created empty by the bootstrap stack and filled in by bootstrap.sh (never in this state).
+data "aws_secretsmanager_secret" "smtp" {
+  name = "${var.project}/smtp"
 }

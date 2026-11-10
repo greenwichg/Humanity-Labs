@@ -512,7 +512,11 @@ def invite(request: Request, db: DB, auth: ManagerAuth, email: F = "", role: F =
     audit.record(db, "member_invited", org_id=auth.org.id, user_id=auth.user.id, subject=normalised, role=role)
     db.commit()
     invitations = [*invitations, invitation]
-    message = "Invitation sent." if result.status == "sent" else "Email is not configured, so share this link with them yourself."
+    # Only say it was emailed when it was; otherwise say what happened and show the link to pass on.
+    message = {
+        "sent": f"Invitation emailed to {normalised}.",
+        "skipped": "Email is not set up, so nothing was sent. Share this link with them yourself.",
+    }.get(result.status, "We couldn't send the invitation email. Share this link with them yourself, or try again later.")
     return render(
         request,
         "app/team.html",

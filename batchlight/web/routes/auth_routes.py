@@ -183,15 +183,27 @@ def forgot(request: Request, db: DB, email: Text = ""):
         )
         if recent < 3:
             token = new_token()
-            db.add(
-                PasswordReset(user_id=user.id, token_hash=token_hash(token), expires_at=datetime.now(UTC) + timedelta(hours=1))
-            )
             link = f"{get_settings().base_url}/reset-password/{token}"
-            send_email(
+            result = send_email(
                 user.email,
                 "Reset your Batchlight password",
                 f"Hello {user.full_name},\n\nUse this link within one hour to choose a new password:\n{link}\n\n"
                 "If you didn't ask for this, you can ignore this email.",
+            )
+            if result.status != "sent":
+                # Say so rather than claim a link is on its way. This can reveal that the address has an account,
+                # but only while email is failing, which production checks for at every deploy and alarms on.
+                audit.record(db, "password_reset_email_failed", user_id=user.id, ip=client_ip(request), status=result.status)
+                db.commit()
+                return render(
+                    request,
+                    "auth/forgot.html",
+                    {"sent": False, "error": "We couldn't send the reset email just now. Please try again in a few minutes."},
+                    status_code=503,
+                )
+            # The link only works once the email has gone out.
+            db.add(
+                PasswordReset(user_id=user.id, token_hash=token_hash(token), expires_at=datetime.now(UTC) + timedelta(hours=1))
             )
         audit.record(db, "password_reset_requested", user_id=user.id, ip=client_ip(request))
         db.commit()

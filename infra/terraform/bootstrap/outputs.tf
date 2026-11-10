@@ -17,3 +17,8 @@ output "alerts_topic_arn" {
   description = "SNS topic the CloudWatch alarms notify."
   value       = aws_sns_topic.alerts.arn
 }
+
+output "smtp_secret_name" {
+  description = "Secrets Manager secret holding the SES SMTP credentials."
+  value       = aws_secretsmanager_secret.smtp.name
+}

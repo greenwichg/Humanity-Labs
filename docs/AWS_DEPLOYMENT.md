@@ -50,7 +50,7 @@ Internet ──► AWS WAF (rate limit per address, AWS managed rules)
                  │  tasks have public addresses for OUTBOUND traffic only (no NAT gateway)
                  ▼
            RDS PostgreSQL 16 (private subnets, no internet route, TLS only, encrypted)
-Secrets Manager: database URL, app secret key, SMTP password      ECR: images      CloudWatch Logs: 30 days
+Secrets Manager: database URL, app secret key, SES SMTP credentials      ECR: images      CloudWatch Logs: 30 days
 ACM: certificate for humanitylabs.in and www.humanitylabs.in (DNS-validated, renewed automatically)
 ```
 
@@ -97,16 +97,17 @@ You need:
 **Quickest route for steps 1 and 2:** one command that does both, in the safe order:
 
 ```bash
-infra/scripts/bootstrap.sh --alert-email you@example.org     # optional: --region ap-south-1 --budget 100
+infra/scripts/bootstrap.sh --alert-email you@example.org     # optional: --reviewer <login> --region ap-south-1 --budget 100
 ```
 
 It asks you to type the AWS account ID to confirm the account, and checks that the `humanitylabs.in` hosted zone is in that account (`--domain` changes the domain). Then it:
 
-1. protects the `production` environment (you as required reviewer, `main` only) and checks that the protection is in place;
+1. protects the `production` environment: you (or `--reviewer`) as the **only** required reviewer, and the branch `main` as the **only** allowed deployment rule. It removes any other branch or tag rule. Then it reads the settings back and stops before AWS unless they are exactly that;
 2. runs the bootstrap stack (Terraform shows its plan and asks before changing anything);
-3. sets `AWS_REGION`, `DOMAIN_NAME`, `TF_STATE_BUCKET` and `AWS_BACKUP_ROLE_ARN`, then `AWS_DEPLOY_ROLE_ARN` last, which switches on deploys.
+3. asks for the Amazon SES SMTP user name and password (step 5) and stores them in the secret `humanity-labs/smtp`. The password is not shown, and is passed on standard input, so it never lands in a command line, file or Terraform state. You can skip this and run the script again later;
+4. checks the environment again, then sets `AWS_REGION`, `DOMAIN_NAME`, `TF_STATE_BUCKET` and `AWS_BACKUP_ROLE_ARN`, and `AWS_DEPLOY_ROLE_ARN` last, which switches on deploys.
 
-It stops before changing anything if the account ID doesn't match, the hosted zone is missing, or you aren't a repository admin. It is safe to run again. The manual equivalent follows.
+It stops before changing anything if the account ID doesn't match, the hosted zone is missing, the reviewer doesn't exist, or you aren't a repository admin. It is safe to run again. The manual equivalent follows.
 
 ### 1. Bootstrap (from your machine, once)
 
@@ -132,8 +133,8 @@ terraform output         # note state_bucket, deploy_role_arn, backup_role_arn
 
 **Environment.** Settings → Environments → New environment `production`:
 
-- Add yourself (and anyone else allowed to change production) as a required reviewer. Every workflow that changes AWS waits here for approval.
-- Under "Deployment branches", allow `main` only.
+- Add yourself as the required reviewer. Every workflow that changes AWS waits here for approval.
+- Under "Deployment branches and tags", choose *Selected branches and tags* and keep exactly one rule: the branch `main`. Delete any other branch or tag rule. The deploy role trusts any job in this environment, so another allowed branch would let its workflows deploy.
 - Do this **before** setting `AWS_DEPLOY_ROLE_ARN`. GitHub creates an environment with no protection the first time a workflow uses it, and Terraform cannot enforce these settings.
 
 **Variables.** Settings → Secrets and variables → Actions → Variables (no secrets are needed):
@@ -146,13 +147,22 @@ terraform output         # note state_bucket, deploy_role_arn, backup_role_arn
 | `AWS_REGION` | default `ap-south-1` | no |
 | `PROJECT` | default `humanity-labs` (names every resource) | no |
 | `DOMAIN_NAME` | default `humanitylabs.in`; set only to use another domain registered in Route 53 in the same account | no |
-| `EMAIL_BACKEND`, `EMAIL_FROM`, `SMTP_HOST`, `SMTP_USERNAME` | step 5 | for email |
+| `EMAIL_FROM` | default `Humanity Labs <alerts@humanitylabs.in>` | no |
+| `SMTP_HOST` | default Amazon SES in the region (`email-smtp.ap-south-1.amazonaws.com`) | no |
 | `CPU_ARCHITECTURE` | default `ARM64` (Graviton); set `X86_64` to switch back | no |
 | `DB_IDENTIFIER` | leave unset; only for [adopting a restored database](#adopt-a-promoted-database-into-terraform) | no |
 
 Until `AWS_DEPLOY_ROLE_ARN` exists, the automatic deploy and the backup workflows skip themselves.
 
 ### 3. First deployment
+
+**Do step 5 (email) first.** Before migrating or rolling anything out, every deploy checks three things:
+
+- SES has production access;
+- the sender domain is verified;
+- the SMTP login works from inside AWS. Nothing is sent.
+
+If any check fails, the deploy stops and leaves the running site alone.
 
 Actions → **AWS provision** → Run workflow (leave `seed` ticked) → approve the run under `production`.
 
@@ -217,19 +227,34 @@ Optional hardening, each a separate DNS change that needs your approval:
 
 ### 5. Email (manual)
 
-Without these settings, no email is delivered:
+Password resets, invitations and alert emails depend on email, so production requires working SMTP:
 
-- The app logs only the masked recipient and subject of each email, never its body, because bodies contain sign-in, reset and invitation links.
-- Invitation screens show the link so you can share it yourself.
+- **Startup:** the web and worker processes refuse to start in production unless email is set to SMTP with a real host, user name and password, STARTTLS, and a sender address.
+- **Deploys:** every deploy checks, before rolling anything out, that SES has production access, the sender domain is verified, and the SMTP login works (`python -m batchlight.cli email-check`, which sends nothing).
+- **Honest results:** the site never says an email went out when it didn't:
+  - if a reset email fails, the page says so and asks the user to try again, and no reset link is stored;
+  - an invitation says whether it was emailed, or that sending failed, and always shows the link to pass on.
 
-1. In Amazon SES (`ap-south-1`), verify your sending domain or address and request production access. A new SES account can only send to verified addresses.
-2. Create SMTP credentials in SES.
-3. Store the SMTP password (never commit it): `aws secretsmanager put-secret-value --secret-id humanity-labs/smtp-password --secret-string '<password>'`
-4. Set the GitHub variables `EMAIL_BACKEND=smtp`, `SMTP_HOST=email-smtp.ap-south-1.amazonaws.com` and `SMTP_USERNAME=<SMTP user name>`, then run **AWS deploy**. Mail goes out from `Humanity Labs <alerts@humanitylabs.in>` by default; set `EMAIL_FROM` to change it.
+Set it up **before the first provision**, in Amazon SES in `ap-south-1`:
 
-Verifying `humanitylabs.in` in SES means adding its DKIM CNAME records to the hosted zone. The deploy role is deliberately not allowed to add them, so add them in the SES console (it offers to create them in Route 53) or ask for them to be added to Terraform.
+1. **Verify the domain.** *Identities → Create identity → Domain → humanitylabs.in*, with Easy DKIM, and tick *Publish DNS records to Route 53*. This adds three DKIM CNAME records to the hosted zone, a live DNS change you make yourself; the deploy role is not allowed to touch those records. Verification usually completes within minutes once the records exist.
+2. **Request production access.** *Account dashboard → Request production access* (transactional mail: password resets, invitations, alert digests). A new SES account can only send to verified addresses until AWS approves this, which can take about a day.
+3. **Create SMTP credentials.** *SMTP settings → Create SMTP credentials*. This creates an IAM user, and shows the SMTP user name and password once.
+4. **Store them.** Run `infra/scripts/bootstrap.sh` (it asks for them), or put them yourself:
 
-Not wired up: `BATCHLIGHT_OPENFDA_API_KEY` (optional, raises openFDA rate limits). To use it, add a secret to `infra/terraform/platform/secrets.tf` the same way as the SMTP password.
+   ```bash
+   read -r -p "SMTP user name: " u; read -r -s -p "SMTP password: " p; echo
+   U="$u" P="$p" python3 -c 'import json,os; print(json.dumps({"username": os.environ["U"], "password": os.environ["P"]}))' \
+     | aws secretsmanager put-secret-value --secret-id humanity-labs/smtp --secret-string file:///dev/stdin
+   ```
+
+   Use the same command to replace them later (for example after rotating the SMTP credentials), then run **AWS deploy** so the tasks pick them up.
+
+Mail goes out from `Humanity Labs <alerts@humanitylabs.in>`; set `EMAIL_FROM` to change it. The address must be on a verified domain.
+
+The secret `humanity-labs/smtp` belongs to the bootstrap stack, so it exists before the first deploy and survives every teardown. The SMTP user name stays out of the public deploy logs.
+
+Not wired up: `BATCHLIGHT_OPENFDA_API_KEY` (optional, raises openFDA rate limits). To use it, add a secret to `infra/terraform/platform/secrets.tf` the same way as the app secret key.
 
 ## The workflows
 
@@ -381,9 +406,8 @@ aws rds describe-db-snapshots --snapshot-type manual --query "DBSnapshots[].DBSn
 
 Terraform creates the database from that snapshot and sets a new master password, and the app's database URL secret is created to match.
 
-Two secrets do not come back:
+The SES SMTP credentials survive, because their secret belongs to the bootstrap stack. One secret does not come back:
 
-- **The SMTP password** was removed with the secrets. Store it again (setup step 5).
 - **The app secret key** is regenerated. It only keys the hash used for the hourly food-report rate limit, so the only effect is that the current hour's limits reset.
 
 ### The database was deleted outside these workflows
@@ -491,8 +515,8 @@ Not adopted on purpose: AWS's anonymous-IP rule list. It would block VPN users a
 
 - [ ] Use an AWS account dedicated to this site.
 - [ ] Run the bootstrap stack with `alert_email`, keep its local state file safe, and click the subscription confirmation email (step 1).
-- [ ] Create the `production` environment with required reviewers and allow only `main`, **then** set the variables (step 2).
+- [ ] Create the `production` environment with you as the only required reviewer and `main` as the only deployment rule, **then** set the variables (step 2). `bootstrap.sh` does and verifies this.
 - [ ] Confirm `humanitylabs.in` is registered in the deployment account, with automatic renewal on (step 4). The certificate, DNS records and redirects are created by AWS provision.
-- [ ] Verify the SES sender, get production access, store the SMTP password, and set the email variables (step 5).
+- [ ] Before the first provision: verify `humanitylabs.in` in SES, get production access, and store the SMTP credentials (step 5). Deploys check all three.
 - [ ] Make yourself a curator (step 3).
 - [ ] Run **AWS restore** in `verify` mode once to prove the backups work.

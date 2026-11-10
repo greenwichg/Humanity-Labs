@@ -64,11 +64,6 @@ variable "worker_use_spot" {
   default     = true
 }
 
-variable "email_backend" {
-  description = "console (logs only), smtp or disabled. Switch to smtp after setting the SMTP secret."
-  type        = string
-  default     = "console"
-}
 
 variable "email_from" {
   type    = string
@@ -76,8 +71,9 @@ variable "email_from" {
 }
 
 variable "smtp_host" {
-  type    = string
-  default = ""
+  description = "SMTP server. Empty uses Amazon SES in this region (email-smtp.<region>.amazonaws.com)."
+  type        = string
+  default     = ""
 }
 
 variable "smtp_port" {
@@ -85,10 +81,6 @@ variable "smtp_port" {
   default = 587
 }
 
-variable "smtp_username" {
-  type    = string
-  default = ""
-}
 
 variable "cpu_architecture" {
   description = "ARM64 (Graviton, about 44% cheaper per vCPU-hour in Mumbai) or X86_64. Must match the image the deploy workflow builds (repository variable CPU_ARCHITECTURE)."

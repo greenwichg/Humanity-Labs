@@ -98,3 +98,87 @@ def test_plan_guard_lets_ordinary_changes_through():
         ]
     )
     assert result.returncode == 0, result.stdout
+
+
+# --------------------------------------------------------------------------- deploy gate: email must work before rollout
+
+yaml = pytest.importorskip("yaml")
+
+
+def email_gate(tmp_path: Path, production="True", verified="True", check_exit=0, smtp_host="", stored="1"):
+    """Run the deploy workflow's email gate step, as GitHub runs it, against fake aws and run-task commands."""
+    doc = yaml.safe_load((ROOT / ".github" / "workflows" / "aws-deploy-core.yml").read_text())
+    script = next(s for s in doc["jobs"]["deploy"]["steps"] if s.get("name", "").startswith("Check email delivery"))["run"]
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_aws = bin_dir / "aws"
+    fake_aws.write_text(
+        f'#!/bin/sh\necho "$@" >> {tmp_path}/aws.log\ncase "$*" in\n'
+        f"  *get-account*) echo {production} ;;\n  *get-email-identity*) echo {verified} ;;\n"
+        f"  *describe-secret*) echo {stored} ;;\nesac\n"
+    )
+    scripts = tmp_path / "infra" / "scripts"
+    scripts.mkdir(parents=True)
+    fake_task = scripts / "run-task.sh"
+    fake_task.write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/task.log\nexit {check_exit}\n')
+    for f in (fake_aws, fake_task):
+        f.chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "TF_VAR_email_from": "Humanity Labs <alerts@humanitylabs.in>",
+        "TF_VAR_smtp_host": smtp_host,
+        "AWS_REGION": "ap-south-1",
+        "PROJECT": "humanity-labs",
+    }
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    task_log = (tmp_path / "task.log").read_text() if (tmp_path / "task.log").exists() else ""
+    aws_log = (tmp_path / "aws.log").read_text() if (tmp_path / "aws.log").exists() else ""
+    return result, aws_log, task_log
+
+
+def test_email_gate_passes_with_ses_production_access_verified_domain_and_working_login(tmp_path):
+    result, aws_log, task_log = email_gate(tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "get-email-identity --email-identity humanitylabs.in" in aws_log
+    assert "describe-secret --secret-id humanity-labs/smtp" in aws_log
+    assert task_log.strip() == "python -m batchlight.cli email-check"
+
+
+def test_email_gate_stops_when_no_smtp_credentials_are_stored(tmp_path):
+    result, _, task_log = email_gate(tmp_path, stored="0")
+    assert result.returncode != 0
+    assert "No SMTP credentials are stored in humanity-labs/smtp" in result.stdout
+    assert task_log == ""  # ECS could not even start the check task without them
+
+
+def test_email_gate_stops_while_ses_is_in_the_sandbox(tmp_path):
+    result, _, task_log = email_gate(tmp_path, production="False")
+    assert result.returncode != 0
+    assert "still in the sandbox" in result.stdout
+    assert task_log == ""
+
+
+def test_email_gate_stops_when_the_sender_domain_is_not_verified(tmp_path):
+    result, _, task_log = email_gate(tmp_path, verified="False")
+    assert result.returncode != 0
+    assert "humanitylabs.in is not verified" in result.stdout
+    assert task_log == ""
+
+
+def test_email_gate_stops_when_the_smtp_login_fails(tmp_path):
+    result, _, task_log = email_gate(tmp_path, check_exit=1)
+    assert result.returncode != 0
+    assert "email-check" in task_log
+
+
+def test_email_gate_still_checks_the_login_for_a_non_ses_server(tmp_path):
+    result, aws_log, task_log = email_gate(tmp_path, production="False", smtp_host="smtp.example.net")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "sesv2" not in aws_log  # SES checks apply only to SES
+    assert "email-check" in task_log

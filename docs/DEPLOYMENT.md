@@ -27,7 +27,7 @@ All settings are environment variables prefixed `BATCHLIGHT_`. See `.env.example
 | `BATCHLIGHT_BASE_URL` | Public URL, e.g. `https://batchlight.example.org` (used in email links) |
 | `BATCHLIGHT_SECURE_COOKIES` | `true` (also enables HSTS) |
 | `BATCHLIGHT_TRUST_PROXY_HEADERS` | `true` only behind a proxy that appends to `X-Forwarded-For`; the app uses the rightmost entry. Also set `FORWARDED_ALLOW_IPS` to the proxy's address |
-| `BATCHLIGHT_EMAIL_BACKEND` | `smtp`. With `console` in production nothing is sent, and only the masked recipient and subject are logged |
+| `BATCHLIGHT_EMAIL_BACKEND` | `smtp`. Production refuses to start without SMTP host, user name, password and STARTTLS, because password resets and invitations depend on email. `python -m batchlight.cli email-check` tests the login without sending anything |
 | `BATCHLIGHT_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_STARTTLS` | From your email provider |
 | `BATCHLIGHT_EMAIL_FROM` | A sender address your provider has verified |
 | `BATCHLIGHT_OPENFDA_API_KEY` | Recommended; free from open.fda.gov, raises rate limits |

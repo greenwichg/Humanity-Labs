@@ -16,6 +16,7 @@ from .. import __version__
 from ..config import get_settings
 from ..db import session_scope
 from ..ingest import ensure_sources
+from ..services.email import production_email_problems
 from .auth import CSRF_COOKIE, FLASH_COOKIE, CsrfFailed, Forbidden, LoginRequired, WorkspaceRequired, csrf_token
 from .routes import admin, admin_food, api, auth_routes, food, infra, public, workspace
 from .templating import render
@@ -52,6 +53,9 @@ def create_app() -> FastAPI:
     settings = get_settings()
     if settings.is_production and len(settings.secret_key) < 32:
         raise RuntimeError("Set BATCHLIGHT_SECRET_KEY to a random value of at least 32 characters in production")
+    if settings.is_production and (problems := production_email_problems(settings)):
+        # Password resets and invitations need working email; never run production pretending otherwise.
+        raise RuntimeError("Email is not set up for production: " + "; ".join(problems))
     app = FastAPI(
         title="Batchlight API",
         version=__version__,

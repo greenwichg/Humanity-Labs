@@ -204,6 +204,12 @@ data "aws_iam_policy_document" "deploy" {
     ]
     resources = ["*"]
   }
+  # Read-only SES checks the deploy runs before rolling out: production access and the verified sending domain.
+  statement {
+    sid       = "CheckEmailSetup"
+    actions   = ["ses:GetAccount", "ses:GetEmailIdentity"]
+    resources = ["*"]
+  }
   statement {
     sid       = "ThisProjectsSecrets"
     actions   = ["secretsmanager:*"]
@@ -360,6 +366,16 @@ resource "aws_iam_role_policy" "backup" {
   name   = "backup"
   role   = aws_iam_role.backup.id
   policy = data.aws_iam_policy_document.backup.json
+}
+
+# ---------------------------------------------------------------- SMTP credentials
+
+# Amazon SES SMTP credentials as JSON {"username": "...", "password": "..."}. Only the empty secret is created here;
+# bootstrap.sh asks for the values and stores them with your credentials, so they never enter Terraform state or the
+# public deploy logs. It lives in this stack so the credentials exist before the first deploy and survive teardowns.
+resource "aws_secretsmanager_secret" "smtp" {
+  name        = "${local.name_prefix}/smtp"
+  description = "Amazon SES SMTP credentials as JSON {username, password}; set with infra/scripts/bootstrap.sh"
 }
 
 # ---------------------------------------------------------------- alerts and budget

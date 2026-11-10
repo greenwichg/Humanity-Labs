@@ -9,7 +9,7 @@ override_data {
     ecr_repository_url           = "111122223333.dkr.ecr.ap-south-1.amazonaws.com/humanity-labs", log_group_name = "/ecs/humanity-labs",
     database_url_secret_arn      = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/database-url-a",
     app_secret_key_arn           = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/app-secret-key-b",
-    smtp_password_secret_arn     = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/smtp-password-c",
+    smtp_secret_arn              = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/smtp-AbCdEf",
     alerts_topic_arn             = "arn:aws:sns:ap-south-1:111122223333:humanity-labs-alerts",
     ecs_permissions_boundary_arn = "arn:aws:iam::111122223333:policy/humanity-labs-ecs-boundary"
     domain_name                  = "humanitylabs.in"
@@ -113,7 +113,7 @@ run "without_a_domain_serves_http_on_the_load_balancer" {
       ecr_repository_url           = "111122223333.dkr.ecr.ap-south-1.amazonaws.com/humanity-labs", log_group_name = "/ecs/humanity-labs",
       database_url_secret_arn      = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/database-url-a",
       app_secret_key_arn           = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/app-secret-key-b",
-      smtp_password_secret_arn     = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/smtp-password-c",
+      smtp_secret_arn              = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/smtp-AbCdEf",
       alerts_topic_arn             = "arn:aws:sns:ap-south-1:111122223333:humanity-labs-alerts",
       ecs_permissions_boundary_arn = "arn:aws:iam::111122223333:policy/humanity-labs-ecs-boundary"
       domain_name                  = ""
@@ -124,5 +124,32 @@ run "without_a_domain_serves_http_on_the_load_balancer" {
   assert {
     condition     = length(aws_lb_listener.http_forward) == 1 && length(aws_lb_listener.https) == 0 && length(aws_route53_record.apex) == 0 && length(aws_route53_record.www) == 0
     error_message = "without a domain there is no HTTPS listener and no DNS record"
+  }
+}
+
+run "production_email_uses_ses_smtp_with_secret_credentials" {
+  command = plan
+  assert {
+    condition = alltrue([
+      for e in [
+        { name = "BATCHLIGHT_EMAIL_BACKEND", value = "smtp" },
+        { name = "BATCHLIGHT_SMTP_HOST", value = "email-smtp.ap-south-1.amazonaws.com" },
+        { name = "BATCHLIGHT_EMAIL_FROM", value = "Humanity Labs <alerts@humanitylabs.in>" },
+      ] : contains(jsondecode(aws_ecs_task_definition.web.container_definitions)[0].environment, e)
+    ])
+    error_message = "production must send through SES SMTP from alerts@humanitylabs.in"
+  }
+  assert {
+    condition = alltrue([
+      for s in [
+        { name = "BATCHLIGHT_SMTP_USERNAME", valueFrom = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/smtp-AbCdEf:username::" },
+        { name = "BATCHLIGHT_SMTP_PASSWORD", valueFrom = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/smtp-AbCdEf:password::" },
+      ] : contains(jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].secrets, s)
+    ])
+    error_message = "SMTP user name and password must come from the secret"
+  }
+  assert {
+    condition     = !anytrue([for e in jsondecode(aws_ecs_task_definition.cli.container_definitions)[0].environment : e.name == "BATCHLIGHT_SMTP_USERNAME"])
+    error_message = "the SMTP user name must not be a plain environment variable (it would show in public deploy logs)"
   }
 }

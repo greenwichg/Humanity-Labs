@@ -54,3 +54,18 @@ run "deploy_role_guard_rails" {
     error_message = "The deploy role must not be able to change who can assume roles."
   }
 }
+
+run "smtp_secret_belongs_to_bootstrap" {
+  command = plan
+  assert {
+    condition     = aws_secretsmanager_secret.smtp.name == "humanity-labs/smtp"
+    error_message = "the SES SMTP credentials secret must be created here (empty), so it exists before deploys and survives teardowns"
+  }
+  assert {
+    condition = anytrue([
+      for st in data.aws_iam_policy_document.deploy.statement :
+      st.actions == toset(["ses:GetAccount", "ses:GetEmailIdentity"]) && coalesce(st.effect, "Allow") == "Allow"
+    ])
+    error_message = "the deploy role needs read-only SES access for the email check"
+  }
+}

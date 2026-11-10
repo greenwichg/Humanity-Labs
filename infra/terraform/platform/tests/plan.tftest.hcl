@@ -4,6 +4,7 @@ mock_provider "aws" {
   mock_data "aws_caller_identity" { defaults = { account_id = "111122223333" } }
   mock_data "aws_partition" { defaults = { partition = "aws" } }
   mock_data "aws_route53_zone" { defaults = { zone_id = "Z0HUMANITYLABS", name = "humanitylabs.in" } }
+  mock_data "aws_secretsmanager_secret" { defaults = { arn = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/smtp-AbCdEf" } }
 }
 mock_provider "random" {}
 run "plan" {
@@ -42,5 +43,13 @@ run "no_domain_means_no_certificate" {
   assert {
     condition     = length(aws_acm_certificate.site) == 0 && length(aws_route53_record.certificate_validation) == 0 && output.certificate_arn == ""
     error_message = "an empty domain must not request a certificate"
+  }
+}
+
+run "smtp_credentials_come_from_the_bootstrap_secret" {
+  command = plan
+  assert {
+    condition     = data.aws_secretsmanager_secret.smtp.name == "humanity-labs/smtp" && output.smtp_secret_arn == "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/smtp-AbCdEf"
+    error_message = "the platform must read the SMTP secret created by the bootstrap stack, not create its own"
   }
 }
