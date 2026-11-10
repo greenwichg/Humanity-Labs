@@ -1,40 +1,69 @@
 {% extends "base.html" %}
-{% from "infra/_macros.html" import project_row, badge with context %}
-{% block title %}{{ party.name }} · contracts{% endblock %}
+{% from "infra/_macros.html" import badge with context %}
+{% set is_agency = party.kind == "agency" %}
+{% block title %}{{ party.name }} · {{ "agency" if is_agency else "contractor" }}{% endblock %}
 {% block body %}
-<div class="container-page max-w-5xl py-8">
-  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/infrastructure">Public works</a> › <a href="/infrastructure/contractors">Contractors</a></nav>
+{% set ROLE = {"owner": "Owner (reporting ministry)", "implementing_agency": "Implementing agency", "tendering_body": "Tendering body", "contractor": "Main contractor", "subcontractor": "Subcontractor"} %}
+<div class="container-page max-w-6xl py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb"><a href="/infrastructure">Public works</a>{% if not is_agency %} › <a href="/infrastructure/contractors">Contractors</a>{% endif %}</nav>
   <h1 class="mt-2 text-2xl font-bold sm:text-3xl">{{ party.name }}</h1>
-  <p class="mt-2 max-w-3xl text-sm text-ink-600">Works awarded to this name in the official records we hold. Names are matched as printed, so a different firm with the same name may appear here, and works under other spellings may be missing. Winning contracts is not evidence of anything wrong.</p>
+  <p class="mt-1 text-sm font-medium text-ink-700">{{ "Agency" if is_agency else "Contractor" }} as named in {{ scope_source.name if scope_source else "our sources" }}{% if party.scope_state %}, {{ region_name(party.scope_state) }}{% endif %}</p>
+  <p class="mt-2 max-w-3xl text-sm text-ink-600">This page groups the records in one source{% if party.scope_state %} and one state{% endif %} that print this exact name. We do not know whether they are all the same {{ "body" if is_agency else "firm" }}, and records under other spellings are not included. {% if not is_agency %}Winning contracts is not evidence of anything wrong.{% endif %}</p>
 
   <dl class="mt-6 grid gap-4 sm:grid-cols-3">
-    <div class="card card-pad"><dt class="text-sm text-ink-600">Works awarded</dt><dd class="text-2xl font-bold">{{ total|int }}</dd><dd class="mt-1">{{ badge("official") }}</dd></div>
-    <div class="card card-pad"><dt class="text-sm text-ink-600">Signed contract value</dt><dd class="text-lg font-bold">{% for cur, sum in totals.items() %}{{ money(sum, cur) }}{% if not loop.last %} + {% endif %}{% else %}Not given in these records{% endfor %}</dd><dd class="mt-1 text-xs text-ink-500">Only award notices that state a price.</dd></div>
+    <div class="card card-pad"><dt class="text-sm text-ink-600">{{ "Projects linked" if is_agency else "Works awarded" }}</dt><dd class="text-2xl font-bold">{{ total|int }}</dd><dd class="mt-1">{{ badge("official_copy" if party.scope_source == "infra-pmgsy-roads" else "official") }}</dd></div>
+    <div class="card card-pad"><dt class="text-sm text-ink-600">Signed contract value</dt><dd class="text-lg font-bold">{% for cur, sum in totals.items() %}{{ money(sum, cur) }}{% if not loop.last %} + {% endif %}{% else %}Not given in these records{% endfor %}</dd><dd class="mt-1 text-xs text-ink-500">Only award notices that state a price are counted.</dd></div>
     <div class="card card-pad"><dt class="text-sm text-ink-600">Awards dated</dt><dd class="text-lg font-bold">{% if first %}{{ first.year }}{% if last and last.year != first.year %}–{{ last.year }}{% endif %}{% else %}Not given{% endif %}</dd></div>
   </dl>
 
   <section class="mt-8 grid gap-6 sm:grid-cols-2">
     <div>
-      <h2 class="text-lg font-bold">Where the records come from</h2>
-      <ul class="mt-2 space-y-1 text-sm">{% for name, n in by_source %}<li>{{ name }}: <strong>{{ n|int }}</strong></li>{% endfor %}</ul>
-      <h2 class="mt-6 text-lg font-bold">States and UTs</h2>
-      <p class="mt-2 text-sm">{% for s in states %}<a href="/infrastructure/states/{{ s }}">{{ region_name(s) }}</a>{% if not loop.last %}, {% endif %}{% else %}Not given in the records.{% endfor %}</p>
+      <h2 class="text-lg font-bold">Stage of the works</h2>
+      {% if by_stage %}<ul class="mt-2 space-y-1 text-sm">{% for stage, n in by_stage %}<li>{{ stage }}: <strong>{{ n|int }}</strong></li>{% endfor %}</ul><p class="mt-1 text-xs text-ink-500">As recorded by the source.</p>{% else %}<p class="mt-2 text-sm text-ink-600">No stage is recorded for these works.</p>{% endif %}
     </div>
     <div>
-      <h2 class="text-lg font-bold">Stage of the works</h2>
-      {% if by_stage %}<ul class="mt-2 space-y-1 text-sm">{% for stage, n in by_stage %}<li>{{ stage }}: <strong>{{ n|int }}</strong></li>{% endfor %}</ul><p class="mt-1 text-xs text-ink-500">As recorded by each source.</p>{% else %}<p class="mt-2 text-sm text-ink-600">No stage is recorded for these works.</p>{% endif %}
-      <h2 class="mt-6 text-lg font-bold">Time from award to completion</h2>
+      <h2 class="text-lg font-bold">Time from award to completion</h2>
       {% if timing %}
       <p class="mt-2 text-sm">Typically about <strong>{{ timing.median_months }} months</strong> (the middle value across {{ timing.count|int }} work{{ "s" if timing.count != 1 }} with both dates).</p>
       <p class="mt-1">{{ badge("calculated") }} <span class="text-xs text-ink-500">Worked out by us from the award and completion dates in the records. It does not show whether any work was late: the agreed durations are not in these records.</span></p>
-      {% else %}<p class="mt-2 text-sm text-ink-600">No work in our records has both an award date and a completion date.</p>{% endif %}
+      {% else %}<p class="mt-2 text-sm text-ink-600">No work here has both an award date and a completion date.</p>{% endif %}
     </div>
   </section>
 
-  <p class="mt-6 rounded-xl bg-beam-50 p-4 text-sm text-ink-900 ring-1 ring-beam-200">Inspection grades, penalties, blacklisting and audit observations about this contractor are not in our sources yet. They will be shown here only when an official record states them, with a link.</p>
+  <p class="mt-6 rounded-xl bg-beam-50 p-4 text-sm text-ink-900 ring-1 ring-beam-200">Construction quality, inspection grades, penalties and debarment are not in our sources for this name. Debarment lists on government e-tender portals can only be searched through a captcha, so we cannot read them. Nothing about quality is shown unless an official record states it.</p>
 
-  <h2 class="mt-8 text-xl font-bold">Works</h2>
-  <ul class="mt-3 space-y-3">{% for p in rows %}{{ project_row(p) }}{% endfor %}</ul>
-  {% if total > rows|length %}<p class="mt-3 text-sm"><a href="/infrastructure/projects?contractor={{ party.id }}">See all {{ total|int }} works</a></p>{% endif %}
+  <section class="mt-8" aria-labelledby="history-h">
+    <h2 id="history-h" class="text-xl font-bold">History</h2>
+    <p class="mt-1 text-sm text-ink-600">Every record linking this name to a project, newest first{% if total > history|length %}; showing {{ history|length }} of {{ total|int }}. <a href="/infrastructure/projects?party={{ party.id }}">See all</a>{% else %}.{% endif %}</p>
+    <div class="mt-3 overflow-x-auto rounded-xl bg-white ring-1 ring-ink-100">
+      <table class="min-w-full text-left text-sm">
+        <thead class="bg-ink-50 text-xs uppercase tracking-wide text-ink-600">
+          <tr><th class="px-3 py-2">Project</th><th class="px-3 py-2">Role</th><th class="px-3 py-2">State</th><th class="px-3 py-2">Awarded</th><th class="px-3 py-2">Contract value</th><th class="px-3 py-2">Stage</th><th class="px-3 py-2">Completed</th><th class="px-3 py-2">Evidence</th></tr>
+        </thead>
+        <tbody class="divide-y divide-ink-100">
+          {% for p, role in history %}
+          <tr class="align-top">
+            <td class="px-3 py-2"><a href="/infrastructure/projects/{{ p.id }}">{{ p.title[:90] }}{% if p.title|length > 90 %}…{% endif %}</a></td>
+            <td class="px-3 py-2 whitespace-nowrap">{{ ROLE.get(role, role) }}</td>
+            <td class="px-3 py-2">{% for s in p.state_slugs[:2] %}{{ region_name(s) }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</td>
+            <td class="px-3 py-2 whitespace-nowrap">{{ p.awarded_on|date("—") }}</td>
+            <td class="px-3 py-2 whitespace-nowrap">{{ money(p.contract_amount, p.contract_currency) or "Not stated" }}</td>
+            <td class="px-3 py-2">{{ p.status or "—" }}</td>
+            <td class="px-3 py-2 whitespace-nowrap">{{ p.actual_completion_on|date("Not recorded") }}</td>
+            <td class="px-3 py-2">{{ badge((p.data or {}).get("evidence", "official")) }} <a href="{{ p.source_url }}" rel="noopener noreferrer" target="_blank">Source</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if same_name %}
+  <section class="mt-8" aria-labelledby="same-h">
+    <h2 id="same-h" class="text-xl font-bold">The same name in other records</h2>
+    <p class="mt-1 text-sm text-ink-600">These records print the same name in another source or state. They may be different {{ "bodies" if is_agency else "firms" }}; we have no evidence either way, so we keep them apart.</p>
+    <ul class="mt-3 space-y-1 text-sm">{% for other, n in same_name %}<li><a href="/infrastructure/contractors/{{ other.id }}">{{ other.name }}</a> · {{ source_names.get(other.scope_source, other.scope_source) }}{% if other.scope_state %}, {{ region_name(other.scope_state) }}{% endif %} · {{ n|int }} record{{ "s" if n != 1 }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
 </div>
 {% endblock %}

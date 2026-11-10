@@ -108,13 +108,24 @@ def upsert_project(session: Session, source: Source, record: ProjectData) -> tup
             merged[key] = {**merged.get(key, {}), **value} if isinstance(value, dict) else value
         project.data = merged
     known = {p.party.key for p in project.parties if p.role == "contractor"} if not created else set()
+    scope_state = record.state_slugs[0] if len(record.state_slugs) == 1 else ""
     for name in record.contractors:
         key = party_key(name)
         if not key or key in known:
             continue
-        party = session.scalar(select(InfraParty).where(InfraParty.key == key, InfraParty.kind == "contractor"))
+        # A contractor is identified only within one source and state: a shared name elsewhere is not the same firm.
+        party = session.scalar(
+            select(InfraParty).where(
+                InfraParty.key == key,
+                InfraParty.kind == "contractor",
+                InfraParty.scope_source == source.id,
+                InfraParty.scope_state == scope_state,
+            )
+        )
         if party is None:
-            party = InfraParty(key=key, name=" ".join(name.split())[:300], kind="contractor")
+            party = InfraParty(
+                key=key, name=" ".join(name.split())[:300], kind="contractor", scope_source=source.id, scope_state=scope_state
+            )
             session.add(party)
             session.flush()
         project.parties.append(InfraProjectParty(party=party, role="contractor"))
@@ -151,7 +162,8 @@ def upsert_project(session: Session, source: Source, record: ProjectData) -> tup
                 record.source_url,
             ),
         )
-    digest = _hash(project, [p.party.key for p in project.parties], [e.key for e in project.events])
+    contractor_keys = [p.party.key for p in project.parties if p.role == "contractor"]  # agency roles are derived later
+    digest = _hash(project, contractor_keys, [e.key for e in project.events])
     changed = created or digest != project.content_hash
     if changed:
         project.content_hash = digest
@@ -182,6 +194,62 @@ def upsert_document(session: Session, source: Source, record: DocumentData) -> t
         setattr(doc, name, getattr(record, name))
     session.flush()
     return doc, created
+
+
+_AGENCY_KEY = "trim(regexp_replace(upper({col}), '[^A-Z0-9]+', ' ', 'g'))"
+_SCOPE_STATE = "CASE WHEN cardinality(pr.state_slugs) = 1 THEN pr.state_slugs[1] ELSE '' END"
+# (role, column expression on infra_projects pr, whether the agency is national rather than per state)
+AGENCY_ROLES = (
+    ("tendering_body", "pr.tendering_body", False),
+    ("implementing_agency", "CASE WHEN pr.level = 'project' THEN pr.implementing_agency END", True),
+    ("owner", "CASE WHEN pr.level = 'project' THEN pr.data->>'ministry' END", True),
+)
+
+
+def relink_roles(session: Session, source_id: str | None = None) -> None:
+    """Link agencies to projects by role, from fields each source states for that project.
+
+    Tendering body: the organisation that issued the tender notice. Implementing agency and owner (the reporting
+    ministry): as named for a central project in MoSPI's report. Programme-level agency lists are not split.
+    """
+    only = "AND pr.source_id = :src" if source_id else ""
+    params = {"src": source_id} if source_id else {}
+    session.execute(
+        text(
+            "DELETE FROM infra_project_parties pp USING infra_projects pr WHERE pp.project_id = pr.id "  # noqa: S608
+            f"AND pp.role IN ('tendering_body', 'implementing_agency', 'owner') {only}"
+        ),
+        params,
+    )
+    for role, column, national in AGENCY_ROLES:
+        key = _AGENCY_KEY.format(col=column)
+        state = "''" if national else _SCOPE_STATE
+        session.execute(
+            text(
+                # Every interpolated fragment is a constant from AGENCY_ROLES and _SCOPE_STATE, never input.
+                f"INSERT INTO infra_parties (id, key, name, kind, scope_source, scope_state, created_at) "  # noqa: S608
+                f"SELECT gen_random_uuid(), k, min(n), 'agency', src, st, now() FROM ("
+                f"  SELECT {key} AS k, {column} AS n, pr.source_id AS src, {state} AS st FROM infra_projects pr WHERE {column} IS NOT NULL {only}"
+                f") x WHERE k <> '' GROUP BY k, src, st "
+                f"ON CONFLICT (key, kind, scope_source, scope_state) DO NOTHING"
+            ),
+            params,
+        )
+        session.execute(
+            text(
+                f"INSERT INTO infra_project_parties (project_id, party_id, role) "  # noqa: S608
+                f"SELECT pr.id, pa.id, :role FROM infra_projects pr JOIN infra_parties pa ON pa.kind = 'agency' "
+                f"AND pa.key = {key} AND pa.scope_source = pr.source_id AND pa.scope_state = {state} "
+                f"WHERE {column} IS NOT NULL {only} ON CONFLICT DO NOTHING"
+            ),
+            {"role": role, **params},
+        )
+    session.execute(
+        text(
+            "DELETE FROM infra_parties pa WHERE pa.kind = 'agency' "
+            "AND NOT EXISTS (SELECT 1 FROM infra_project_parties pp WHERE pp.party_id = pa.id)"
+        )
+    )
 
 
 def link_projects(session: Session) -> None:
@@ -227,6 +295,7 @@ def run_infra_source(factory: sessionmaker[Session], adapter: InfraSource, clien
                 if run.fetched % 200 == 0:
                     session.commit()
             link_projects(session)
+            relink_roles(session, source.id)
             run.status, source.last_success_at, source.last_error = "succeeded", datetime.now(UTC), None
         except Exception as exc:  # noqa: BLE001 - recorded on the run and the source
             session.rollback()

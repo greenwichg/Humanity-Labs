@@ -505,16 +505,27 @@ class InfraProject(Base):
     parties: Mapped[list[InfraProjectParty]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
+# Roles a named party plays in a project. Subcontractors are part of the model but no connected source names them.
+INFRA_ROLES = ("owner", "implementing_agency", "tendering_body", "contractor", "subcontractor")
+
+
 class InfraParty(Base):
-    """A contractor or agency named in official records. One row per normalised name."""
+    """A contractor or agency, as named in one source for one state.
+
+    The same printed name in another source or state is a separate row: records are never joined into one
+    company or agency on the strength of a name alone. ``scope_state`` is empty when the records span several
+    states or none.
+    """
 
     __tablename__ = "infra_parties"
-    __table_args__ = (UniqueConstraint("key", "kind", name="uq_infra_party_key_kind"),)
+    __table_args__ = (UniqueConstraint("key", "kind", "scope_source", "scope_state", name="uq_infra_party_scope"),)
 
     id: Mapped[uuid.UUID] = uuid_pk()
     key: Mapped[str] = mapped_column(String(300), nullable=False)
     name: Mapped[str] = mapped_column(String(300), nullable=False)
     kind: Mapped[str] = mapped_column(String(20), nullable=False, default="contractor", server_default="contractor")
+    scope_source: Mapped[str] = mapped_column(String(40), nullable=False, default="", server_default="")
+    scope_state: Mapped[str] = mapped_column(String(40), nullable=False, default="", server_default="")
     created_at: Mapped[datetime] = created_at()
 
 

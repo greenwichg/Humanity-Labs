@@ -233,5 +233,94 @@ def test_contractor_directory_and_profile_use_only_official_records(client, db, 
     assert "Works awarded" in profile and "Kerala" in profile and "Maintenance: <strong>1</strong>" in profile
     assert "about <strong>12.0 months</strong>" in profile and "Calculated by us" in profile
     assert "It does not show whether any work was late" in profile
-    assert "Inspection grades, penalties, blacklisting and audit observations" in profile
+    assert "Construction quality, inspection grades, penalties and debarment are not in our sources" in profile
+    assert "Main contractor" in profile and "Official data, republished" in profile  # history table with evidence
     assert client.get("/infrastructure/contractors?page=2").status_code == 200
+
+
+def test_a_shared_name_in_another_source_or_state_is_never_merged(client, db, ingested):
+    from sqlalchemy import select
+
+    from batchlight.infra.sources import ProjectData
+    from batchlight.infra.store import party_key, upsert_project
+    from batchlight.models import InfraParty, Source
+
+    pmgsy = db.get(Source, "infra-pmgsy-roads")
+    record = ProjectData(
+        external_id="PMGSY-TEST-1",
+        level="work",
+        title="Test road",
+        source_url="https://ckandev.indiadataportal.com/dataset/pradhan-mantri-gram-sadak-yojana-pmgsy",
+        state_slugs=["bihar"],
+        state_basis="source",
+        contractors=["Vijay Kumar"],
+        data={"evidence": "official_copy", "scheme": "PMGSY"},
+    )
+    upsert_project(db, pmgsy, record)
+    db.commit()
+    parties = db.scalars(
+        select(InfraParty).where(InfraParty.key == party_key("VIJAY KUMAR"), InfraParty.kind == "contractor")
+    ).all()
+    assert {(p.scope_source, p.scope_state) for p in parties} == {
+        ("infra-wb-civil-works", "himachal-pradesh"),
+        ("infra-pmgsy-roads", "bihar"),
+    }
+    himachal = next(p for p in parties if p.scope_state == "himachal-pradesh")
+    page = client.get(f"/infrastructure/contractors/{himachal.id}").text
+    assert "Contractor as named in World Bank civil-works tenders and contract awards in India, Himachal Pradesh" in page
+    assert "The same name in other records" in page and "Bihar" in page and "we keep them apart" in page
+    assert "Test road" not in page  # the Bihar record stays on its own page
+
+
+def test_passports_name_owner_agency_tendering_body_and_contractor_only_from_sources(client, db, ingested):
+    central = client.get(f"/infrastructure/projects/{project(db, 'MOSPI-701107').id}").text
+    who = central.split("Who is involved")[1].split("</dl>")[0]
+    assert "Owner (reporting ministry)" in who and "Ministry of Civil Aviation" in who
+    assert "Implementing agency" in who and "Airport Authority of India [AAI]" in who
+    assert "The report does not name contractors." in who and "We never guess them." in who
+    tender = client.get(f"/infrastructure/projects/{project(db, 'IN-PUNJAB WRD-574921-CW-RFB').id}").text
+    who = tender.split("Who is involved")[1].split("</dl>")[0]
+    assert "Tendering body" in who and "Punjab Water Resources Division" in who
+    assert "No contractor is named in the records we have." in who  # tender only, no award yet
+    award = client.get(f"/infrastructure/projects/{project(db, 'IN-GUJARAT SPMU-469467-CW-RFB').id}").text
+    who = award.split("Who is involved")[1].split("</dl>")[0]
+    assert "Main contractor" in who and "MESARS JAYSHREE NEW CHAMUNDA CONSTRUCTION CO." in who
+    assert "Named as the awarded bidder in the contract award notice." in who
+    assert "the record does not say which agency ran this work" in who
+
+
+def test_party_scope_migration_round_trip_keeps_every_contractor_link(db, ingested):
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import text
+
+    from batchlight.db import get_engine
+
+    def contractor_links():
+        with get_engine().connect() as conn:
+            return conn.execute(
+                text(
+                    "SELECT count(*), count(DISTINCT p.key) FROM infra_project_parties pp "
+                    "JOIN infra_parties p ON p.id = pp.party_id WHERE pp.role = 'contractor'"
+                )
+            ).one()
+
+    before = contractor_links()
+    db.close()
+    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    command.downgrade(config, "0010_infra_central_projects")
+    try:
+        get_engine().dispose()
+        command.upgrade(config, "head")
+        get_engine().dispose()
+        assert contractor_links() == before
+        with get_engine().connect() as conn:
+            unscoped = conn.execute(
+                text("SELECT count(*) FROM infra_parties WHERE kind = 'contractor' AND scope_source = ''")
+            ).scalar()
+        assert unscoped == 0
+    finally:
+        command.upgrade(config, "head")
+        get_engine().dispose()

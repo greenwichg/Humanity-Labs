@@ -4,7 +4,7 @@
 {% block body %}
 <div class="container-page max-w-4xl py-8">
   <h1 class="text-2xl font-bold sm:text-3xl">Contractors</h1>
-  <p class="mt-2 text-sm text-ink-600">Contractors named in official award records (World Bank contract awards and PMGSY road records), most works first. Names are matched as printed. Being listed here is not evidence of anything wrong.</p>
+  <p class="mt-2 text-sm text-ink-600">Contractors named in official award records (World Bank contract awards and PMGSY road records), most works first. Each entry is one printed name in one source and state; the same name elsewhere is listed separately, because a shared name is not proof of the same firm. Being listed here is not evidence of anything wrong.</p>
   <form method="get" role="search" class="mt-4 flex max-w-xl gap-2">
     <label for="c-q" class="sr-only">Contractor name</label>
     <input id="c-q" name="q" value="{{ q }}" class="input" placeholder="Contractor or company name">
@@ -14,7 +14,7 @@
   {% if rows %}
   <ul class="mt-3 divide-y divide-ink-100 rounded-xl bg-white ring-1 ring-ink-100">
     {% for party, works, sources in rows %}
-    <li class="flex items-center justify-between gap-3 p-4"><a href="/infrastructure/contractors/{{ party.id }}" class="font-medium">{{ party.name }}</a><span class="text-sm text-ink-600">{{ works|int }} work{{ "s" if works != 1 }}{% if sources > 1 %} · {{ sources }} sources{% endif %}</span></li>
+    <li class="flex items-center justify-between gap-3 p-4"><span><a href="/infrastructure/contractors/{{ party.id }}" class="font-medium">{{ party.name }}</a><span class="block text-xs text-ink-500">{{ source_names.get(party.scope_source, "") }}{% if party.scope_state %} · {{ region_name(party.scope_state) }}{% endif %}</span></span><span class="text-sm text-ink-600">{{ works|int }} work{{ "s" if works != 1 }}</span></li>
     {% endfor %}
   </ul>
   {{ pagination(page.page, page.pages) }}

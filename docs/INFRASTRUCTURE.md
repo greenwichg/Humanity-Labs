@@ -32,7 +32,8 @@ Listed on `/infrastructure/sources` (`NOT_CONNECTED` in `batchlight/infra/source
 
 - **PMGSY's own portal (omms.nic.in)**: up-to-date records, quality monitors' grades and maintenance details. Could not be reached from our current servers; needs hosting in India. Its data is meanwhile read from India Data Portal's copy (`infra-pmgsy-roads`).
 - **MoSPI's PAIMANA portal**: the live system behind the monthly report; could not be reached from our servers. The monthly report is used instead.
-- **CPPP and state e-procurement portals**: tenders and award names, but no machine-readable listing and captcha-protected pages.
+- **CPPP**: no machine-readable listing.
+- **Government e-tender portals (GePNIC)**: checked 10 November 2026. The central portal (etenders.gov.in), Maharashtra (mahatenders.gov.in) and Tamil Nadu (tntenders.gov.in) answer from our servers, and each has "Results of Tenders" (award of contract) and "Debarment List" pages, but both can only be searched through a captcha. We do not bypass captchas, so these are not collected. Kerala's portal (etenders.kerala.gov.in) refused connections.
 - **MoSPI central project monitoring** (₹150 crore and above, original and revised cost and dates): website reachable; project-level data not located yet.
 - **MoRTH and NHAI**: national highways; not yet assessed.
 - **data.gov.in**: could not be reached from our servers.
@@ -58,9 +59,25 @@ python -m batchlight.cli infra-ingest --source infra-pmgsy-roads      # ~127 MB 
 
 The worker refreshes each source on its own interval after the medicine and food sources.
 
+## Who is involved: roles and names
+
+Each passport has a "Who is involved" section with five roles, filled only from what a source states for that project:
+
+| Role | Where it comes from |
+|---|---|
+| Owner (reporting ministry) | MoSPI's report names the ministry for each central project. |
+| Implementing agency | MoSPI's report names the agency. For World Bank programmes, the agency list is for the whole programme, and the passport says it does not show which agency ran a given work. PMGSY's data does not name the state agency. |
+| Tendering body | The organisation named on the World Bank tender notice. |
+| Main contractor | The awarded bidder on the World Bank contract award notice, or the company in PMGSY's road records. |
+| Subcontractors | No connected source publishes them, so they are always shown as not published. |
+
+Agency roles are rebuilt from stored project fields after each ingestion run (`relink_roles` in `batchlight/infra/store.py`). Programme-level agency lists are not split into separate agencies.
+
+**Names are never merged into identities.** A contractor or agency page (`InfraParty`) covers one printed name in one source and one state (`scope_source`, `scope_state`; the state is empty when a record spans several states). The same name in another source or state is a separate page, listed under "The same name in other records" with a note that they may be different firms. Migration 0011 split the earlier name-merged profiles this way; on the local data, 23,003 merged profiles became 25,216 scoped ones and every link was kept.
+
 ## Contractor pages
 
-`/infrastructure/contractors` lists contractors named in official award records (World Bank contract awards and PMGSY road records), most works first, with search. Each profile shows works by source, stage of the works, states, award years, total signed contract value where notices state a price, and the typical (median) time from award to completion where both dates are recorded, labelled as our calculation. Names are matched as printed (`party_key` folds "M/s", "Pvt" and "Ltd" spellings), so profiles warn that a different firm may share a name. No penalties, blacklisting or inspection results are shown, because none of the connected sources publish them; they will appear only from an official record.
+`/infrastructure/contractors` lists contractors named in official award records (World Bank contract awards and PMGSY road records), most works first, with search; each entry shows its source and state. A profile shows the number of works, total signed contract value where notices state a price, award years, the stage of the works, the typical (median) time from award to completion where both dates are recorded (labelled as our calculation), and a history table: each project with the role, state, award date, contract value, stage, completion date, evidence label and source link. Names are matched as printed within one source and state (`party_key` folds "M/s", "Pvt" and "Ltd" spellings). Construction quality, inspection grades, penalties and debarment are not shown, because no connected source publishes them for these names.
 
 ## Hosting ingestion in India
 

@@ -732,11 +732,13 @@ NOT_CONNECTED: tuple[PendingSource, ...] = (
         "No machine-readable listing found; the pages need a browser session.",
     ),
     PendingSource(
-        "State e-procurement portals",
-        "State governments",
-        "https://eprocure.gov.in/cppp/",
-        "Tenders and awards for state public works departments, water and urban bodies.",
-        "Protected by captchas; not connected.",
+        "Government e-tender portals (GePNIC): central and state",
+        "NIC for central ministries and state governments",
+        "https://etenders.gov.in/eprocure/app",
+        "Tender results with the awarded bidder and value, and lists of debarred bidders, for central and state works.",
+        "Checked on 10 November 2026: the central, Maharashtra and Tamil Nadu portals answer, but their results of "
+        "tenders and debarment lists can only be searched through a captcha, which we do not bypass. Kerala's portal "
+        "could not be reached from our servers.",
     ),
     PendingSource(
         "PAIMANA project portal",

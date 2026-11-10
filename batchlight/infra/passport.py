@@ -298,3 +298,100 @@ def project_rows(p: InfraProject) -> list[Fact]:
         ),
         Fact("Current condition", None, None, UNPUBLISHED["condition"]),
     ]
+
+
+ROLE_LABELS = {
+    "owner": "Owner (reporting ministry)",
+    "implementing_agency": "Implementing agency",
+    "tendering_body": "Tendering body",
+    "contractor": "Main contractor",
+    "subcontractor": "Subcontractors",
+}
+
+
+@dataclass
+class Role:
+    role: str
+    parties: list  # InfraParty rows, linked
+    text: str | None = None  # a name the source states but that is not linked to a single party
+    evidence: str | None = None
+    note: str | None = None
+    source_url: str | None = None
+
+    @property
+    def label(self) -> str:
+        return ROLE_LABELS[self.role]
+
+    @property
+    def missing(self) -> bool:
+        return not self.parties and not self.text
+
+
+def who(p: InfraProject, parent: InfraProject | None, by_role: dict[str, list]) -> list[Role]:
+    """Who owns, runs, tenders and builds a project, each only as a source states it."""
+    data = p.data or {}
+    ev = data.get("evidence", "official")
+    pmgsy = data.get("scheme") == "PMGSY"
+    rows = []
+    owner = by_role.get("owner", [])
+    rows.append(
+        Role(
+            "owner",
+            owner,
+            None,
+            "official" if owner else None,
+            "As named in MoSPI's report." if owner else "Not stated in the records we have.",
+            p.source_url,
+        )
+    )
+    agency = by_role.get("implementing_agency", [])
+    programme_agencies = parent or (p if p.level == "programme" else None)
+    if agency:
+        rows.append(Role("implementing_agency", agency, None, "official", "As named in MoSPI's report.", p.source_url))
+    elif programme_agencies and programme_agencies.implementing_agency:
+        rows.append(
+            Role(
+                "implementing_agency",
+                [],
+                programme_agencies.implementing_agency,
+                "official",
+                "Named for the whole programme in the World Bank's record; the record does not say which agency ran this work."
+                if p.level == "work"
+                else "Named in the World Bank's programme record.",
+                programme_agencies.source_url,
+            )
+        )
+    else:
+        note = (
+            "The PMGSY data does not name the state agency that ran this road." if pmgsy else "Not stated in the records we have."
+        )
+        rows.append(Role("implementing_agency", [], None, None, note))
+    if p.level == "work":
+        tender = by_role.get("tendering_body", [])
+        rows.append(
+            Role(
+                "tendering_body",
+                tender,
+                None,
+                ev if tender else None,
+                "Organisation that issued the tender notice." if tender else "Not stated in the records we have.",
+                p.tender_url or p.source_url,
+            )
+        )
+    contractors = by_role.get("contractor", [])
+    if contractors:
+        note = "Named in PMGSY's road records." if pmgsy else "Named as the awarded bidder in the contract award notice."
+        rows.append(Role("contractor", contractors, None, ev, note, p.source_url))
+    else:
+        note = (
+            "The report does not name contractors."
+            if p.level == "project"
+            else (
+                "No contractor is named in the records we have."
+                if p.level == "work"
+                else "Contractors are named on each contracted work below."
+            )
+        )
+        rows.append(Role("contractor", [], None, None, note))
+    rows.append(Role("subcontractor", [], None, None, "Not published in any source we use. We never guess them."))
+    return rows

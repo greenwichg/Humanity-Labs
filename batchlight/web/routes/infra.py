@@ -11,7 +11,7 @@ from sqlalchemy.orm import aliased, selectinload
 
 from ...infra.classify import ASSET_TYPES
 from ...infra.geo import BY_SLUG, REGIONS, region_name
-from ...infra.passport import EVIDENCE_HELP, EVIDENCE_LABELS, facts, money
+from ...infra.passport import EVIDENCE_HELP, EVIDENCE_LABELS, facts, money, who
 from ...infra.sources import NOT_CONNECTED, REGISTRY
 from ...infra.store import party_key
 from ...models import InfraDocument, InfraParty, InfraProject, InfraProjectParty, Source
@@ -116,6 +116,7 @@ def projects(
     type: str = "",
     level: str = "",
     contractor: str = "",
+    party: str = "",
     page: int = Query(1, ge=1, le=10_000),
 ):
     q = q.strip()[:200]
@@ -123,10 +124,10 @@ def projects(
     type = type if type in ASSET_TYPES else ""
     level = level if level in ("work", "programme", "project") else ""
     try:
-        contractor_id = uuid.UUID(contractor) if contractor else None
+        party_id = uuid.UUID(party or contractor) if (party or contractor) else None
     except ValueError:
-        contractor_id = None
-    party = db.get(InfraParty, contractor_id) if contractor_id else None
+        party_id = None
+    party = db.get(InfraParty, party_id) if party_id else None
     result = search_projects(db, q, state, type, level, party.id if party else None, page)
     return render(
         request,
@@ -168,6 +169,9 @@ def project(request: Request, project_id: uuid.UUID, db: DB, auth: OptionalAuth)
         events = [e for e in parent.events if e.kind in ("approval", "funding")] + events
     events.sort(key=lambda e: (e.occurred_on is None, e.occurred_on or datetime.min.date()))
     rows = facts(p, parent, datetime.now(UTC).date())
+    by_role: dict[str, list] = {}
+    for link in p.parties:
+        by_role.setdefault(link.role, []).append(link.party)
     audits = []
     if p.state_slugs:
         audits = db.scalars(
@@ -188,7 +192,8 @@ def project(request: Request, project_id: uuid.UUID, db: DB, auth: OptionalAuth)
             "events": events,
             "works": works,
             "works_total": works_total,
-            "contractors": [pp.party for pp in p.parties if pp.role == "contractor"],
+            "contractors": by_role.get("contractor", []),
+            "who": who(p, parent, by_role),
             "audits": audits,
             "source": db.get(Source, p.source_id),
         },
@@ -268,7 +273,10 @@ def contractors(request: Request, db: DB, auth: OptionalAuth, q: str = "", page:
         stmt = stmt.where(or_(InfraParty.name.ilike(f"%{q}%"), InfraParty.key.ilike(f"%{party_key(q)}%")))
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = db.execute(stmt.order_by(works.desc(), InfraParty.name).offset((page - 1) * 50).limit(50)).all()
-    return render(request, "infra/contractors.html", {"rows": rows, "q": q, "page": Page(rows, total, page, 50)})
+    names = {s.id: s.name for s in db.scalars(select(Source).where(Source.category == "infrastructure"))}
+    return render(
+        request, "infra/contractors.html", {"rows": rows, "q": q, "page": Page(rows, total, page, 50), "source_names": names}
+    )
 
 
 @router.get("/contractors/{party_id}")
@@ -315,13 +323,33 @@ def contractor(request: Request, party_id: uuid.UUID, db: DB, auth: OptionalAuth
         spans.sort()
         middle = spans[len(spans) // 2] if len(spans) % 2 else (spans[len(spans) // 2 - 1] + spans[len(spans) // 2]) / 2
         timing = {"count": len(spans), "median_months": round(middle / 30.44, 1)}
-    rows = db.scalars(select(InfraProject).where(mine).order_by(InfraProject.awarded_on.desc().nulls_last()).limit(50)).all()
+    history = db.execute(
+        select(InfraProject, InfraProjectParty.role)
+        .join(InfraProjectParty, InfraProjectParty.project_id == InfraProject.id)
+        .where(InfraProjectParty.party_id == party.id)
+        .order_by(InfraProject.awarded_on.desc().nulls_last(), InfraProject.approved_on.desc().nulls_last())
+        .limit(100)
+    ).all()
+    # Records elsewhere that print the same name. Shown separately: a shared name is not proof of the same firm.
+    works = func.count(InfraProjectParty.project_id).label("works")
+    same_name = db.execute(
+        select(InfraParty, works)
+        .join(InfraProjectParty, InfraProjectParty.party_id == InfraParty.id)
+        .where(InfraParty.key == party.key, InfraParty.kind == party.kind, InfraParty.id != party.id)
+        .group_by(InfraParty.id)
+        .order_by(works.desc())
+        .limit(20)
+    ).all()
+    scope_source = db.get(Source, party.scope_source) if party.scope_source else None
     return render(
         request,
         "infra/contractor.html",
         {
             "party": party,
-            "rows": rows,
+            "history": history,
+            "same_name": same_name,
+            "scope_source": scope_source,
+            "source_names": {s.id: s.name for s in db.scalars(select(Source).where(Source.category == "infrastructure"))},
             "total": total,
             "by_source": by_source,
             "by_stage": by_stage[:8],
