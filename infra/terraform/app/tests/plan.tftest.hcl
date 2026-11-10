@@ -33,3 +33,41 @@ run "plan" {
     error_message = "missing data must count as down"
   }
 }
+
+run "arm64_pool_settings_and_waf" {
+  command = plan
+  variables {
+    domain_name = "example.org" # makes the container definitions known at plan time (no load balancer name needed)
+  }
+  assert {
+    condition = alltrue([
+      for td in [aws_ecs_task_definition.web, aws_ecs_task_definition.worker, aws_ecs_task_definition.cli] :
+      td.runtime_platform[0].cpu_architecture == "ARM64"
+    ])
+    error_message = "all tasks must run on ARM64 by default"
+  }
+  assert {
+    condition     = contains(jsondecode(aws_ecs_task_definition.web.container_definitions)[0].environment, { name = "BATCHLIGHT_DB_POOL_SIZE", value = "5" })
+    error_message = "the web task must use the smaller connection pool"
+  }
+  assert {
+    condition     = length(aws_wafv2_web_acl_association.main) == 1 && contains([for r in aws_wafv2_web_acl.main[0].rule : r.statement[0].rate_based_statement[0].limit if length(r.statement[0].rate_based_statement) > 0], 3000)
+    error_message = "WAF must be attached with the default rate limit"
+  }
+}
+
+run "waf_can_be_turned_off" {
+  command = plan
+  variables {
+    enable_waf       = false
+    cpu_architecture = "X86_64"
+  }
+  assert {
+    condition     = length(aws_wafv2_web_acl.main) == 0 && length(aws_wafv2_web_acl_association.main) == 0
+    error_message = "enable_waf = false must remove WAF"
+  }
+  assert {
+    condition     = aws_ecs_task_definition.worker.runtime_platform[0].cpu_architecture == "X86_64"
+    error_message = "cpu_architecture must switch every task"
+  }
+}

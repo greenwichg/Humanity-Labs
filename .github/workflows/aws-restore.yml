@@ -47,7 +47,7 @@ jobs:
           echo "::error::To promote, type exactly: promote restored database"
           exit 1
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
@@ -67,8 +67,15 @@ jobs:
           done
           python3 - <<'PY' >> "$GITHUB_ENV"
           import json
+          import sys
           p = json.load(open("infra/terraform/platform-outputs.json"))
           a = json.load(open("infra/terraform/app-outputs.json"))
+          if "db_identifier" not in p:
+              sys.exit("::error::The platform layer is not deployed, so there is no database to restore from. "
+                       "To rebuild from a snapshot, run AWS provision with restore_snapshot (docs/AWS_DEPLOYMENT.md).")
+          if "cluster_name" not in a:
+              sys.exit("::error::The app layer is not deployed. The restore check runs as an ECS task, so run "
+                       "AWS provision first (it keeps the existing database), then run this restore again.")
           print(f"DB={p['db_identifier']['value']}")
           print(f"DB_SUBNET_GROUP={p['db_subnet_group_name']['value']}")
           print(f"DB_SECURITY_GROUP={p['db_security_group_id']['value']}")

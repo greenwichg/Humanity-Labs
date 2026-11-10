@@ -51,6 +51,8 @@ locals {
     { name = "BATCHLIGHT_SMTP_HOST", value = var.smtp_host },
     { name = "BATCHLIGHT_SMTP_PORT", value = tostring(var.smtp_port) },
     { name = "BATCHLIGHT_SMTP_USERNAME", value = var.smtp_username },
+    { name = "BATCHLIGHT_DB_POOL_SIZE", value = tostring(var.db_pool_size) },
+    { name = "BATCHLIGHT_DB_MAX_OVERFLOW", value = tostring(var.db_max_overflow) },
   ]
   secrets = [
     { name = "BATCHLIGHT_DATABASE_URL", valueFrom = local.platform.database_url_secret_arn },
@@ -89,7 +91,7 @@ resource "aws_ecs_task_definition" "web" {
   execution_role_arn       = aws_iam_role.execution.arn
   runtime_platform {
     operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = var.cpu_architecture
   }
   container_definitions = jsonencode([{
     name                   = "app"
@@ -113,7 +115,7 @@ resource "aws_ecs_task_definition" "worker" {
   execution_role_arn       = aws_iam_role.execution.arn
   runtime_platform {
     operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = var.cpu_architecture
   }
   container_definitions = jsonencode([{
     name             = "app"
@@ -136,7 +138,7 @@ resource "aws_ecs_task_definition" "cli" {
   execution_role_arn       = aws_iam_role.execution.arn
   runtime_platform {
     operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = var.cpu_architecture
   }
   container_definitions = jsonencode([{
     name             = "app"

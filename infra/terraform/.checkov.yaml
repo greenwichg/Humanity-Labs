@@ -9,7 +9,8 @@ skip-check:
   - CKV_AWS_378   # same
   - CKV_AWS_103   # same; the HTTPS listener uses ELBSecurityPolicy-TLS13-1-2-2021-06
   - CKV2_AWS_20   # same
-  - CKV2_AWS_28   # WAF is optional (from about $5/month); see the hardening list
+  - CKV2_AWS_31   # WAF request logs are off (CloudWatch cost); WAF metrics and sampled requests are on
+  - CKV2_AWS_76   # Log4j is blocked by KnownBadInputs; the anonymous-IP list this check also wants would block VPN users and API clients on cloud hosts
   - CKV_AWS_91    # load balancer access logs are optional (S3 cost)
   - CKV_AWS_150   # the app layer is disposable by design; the database has deletion protection
   - CKV_AWS_157   # Multi-AZ doubles database cost; variable db_multi_az turns it on

@@ -189,7 +189,7 @@ data "aws_iam_policy_document" "deploy" {
     sid = "ManageServices"
     actions = [
       "ec2:*", "elasticloadbalancing:*", "ecs:*", "ecr:*", "rds:*", "logs:*",
-      "cloudwatch:*", "application-autoscaling:*", "acm:DescribeCertificate", "acm:ListCertificates",
+      "cloudwatch:*", "application-autoscaling:*", "wafv2:*", "acm:DescribeCertificate", "acm:ListCertificates",
       "kms:DescribeKey", "kms:ListAliases", "sts:GetCallerIdentity", "servicediscovery:*"
     ]
     resources = ["*"]

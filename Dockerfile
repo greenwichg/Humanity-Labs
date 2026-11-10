@@ -1,12 +1,14 @@
 # syntax=docker/dockerfile:1
 
 # ---- Stylesheet build -------------------------------------------------------
-FROM node:22-slim AS css
+# The stylesheet is the same on every CPU, so build it on the build machine's own platform (fast under emulation).
+FROM --platform=$BUILDPLATFORM node:22-slim AS css
 WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend ./frontend
 COPY batchlight/templates ./batchlight/templates
+COPY batchlight/static/app.js ./batchlight/static/app.js
 RUN npx tailwindcss -i frontend/app.css -o app.css --minify
 
 # ---- Application ------------------------------------------------------------
