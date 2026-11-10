@@ -108,7 +108,7 @@ def test_password_reset_flow_revokes_old_sessions(client, make_client):
     signup(client)
     other = make_client()
     response = post_form(other, "/forgot-password", {"email": "owner@example.org"})
-    assert "If an account exists" in response.text
+    assert "If that email belongs to an account" in response.text
     link = re.search(r"http://testserver(/reset-password/\S+)", OUTBOX[-1].get_content()).group(1)
     assert post_form(other, link, {"password": "short"}).status_code == 422
     done = post_form(other, link, {"password": "a brand new passphrase"})
@@ -119,7 +119,7 @@ def test_password_reset_flow_revokes_old_sessions(client, make_client):
 
 def test_forgot_password_does_not_reveal_unknown_emails(client):
     response = post_form(client, "/forgot-password", {"email": "nobody@example.org"})
-    assert response.status_code == 200 and "If an account exists" in response.text
+    assert response.status_code == 200 and "If that email belongs to an account" in response.text
     assert OUTBOX == []
 
 

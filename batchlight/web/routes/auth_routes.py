@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from email_validator import EmailNotValidError, validate_email
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, BackgroundTasks, Form, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import delete, func, or_, select
 
 from ...config import get_settings
+from ...db import session_scope
 from ...models import ORG_KINDS, AuditEvent, Invitation, Membership, Organization, PasswordReset, Session_, User
 from ...security import hash_password, new_token, password_problem, token_hash, verify_password
 from ...services import audit
@@ -20,6 +22,7 @@ from ..countries import COUNTRIES, valid_country
 from ..templating import render
 
 router = APIRouter()
+log = logging.getLogger("batchlight.auth")
 Text = Annotated[str, Form()]
 OptText = Annotated[str, Form()]
 
@@ -169,7 +172,10 @@ def forgot_form(request: Request, auth: OptionalAuth):
 
 
 @router.post("/forgot-password", include_in_schema=False, dependencies=[CSRF])
-def forgot(request: Request, db: DB, email: Text = ""):
+def forgot(request: Request, db: DB, background: BackgroundTasks, email: Text = ""):
+    """Every outcome (no such account, too many requests, sent, delivery failed) gets the same page and status, and
+    the email goes out after the response, so neither the answer nor its timing shows whether an address has an
+    account. What happened is kept in the audit log and the application log instead."""
     normalised = normalise_email(email)
     user = db.scalar(select(User).where(User.email == normalised)) if normalised else None
     if user:
@@ -183,31 +189,39 @@ def forgot(request: Request, db: DB, email: Text = ""):
         )
         if recent < 3:
             token = new_token()
-            link = f"{get_settings().base_url}/reset-password/{token}"
-            result = send_email(
-                user.email,
-                "Reset your Batchlight password",
-                f"Hello {user.full_name},\n\nUse this link within one hour to choose a new password:\n{link}\n\n"
-                "If you didn't ask for this, you can ignore this email.",
+            reset_row = PasswordReset(
+                user_id=user.id, token_hash=token_hash(token), expires_at=datetime.now(UTC) + timedelta(hours=1)
             )
-            if result.status != "sent":
-                # Say so rather than claim a link is on its way. This can reveal that the address has an account,
-                # but only while email is failing, which production checks for at every deploy and alarms on.
-                audit.record(db, "password_reset_email_failed", user_id=user.id, ip=client_ip(request), status=result.status)
-                db.commit()
-                return render(
-                    request,
-                    "auth/forgot.html",
-                    {"sent": False, "error": "We couldn't send the reset email just now. Please try again in a few minutes."},
-                    status_code=503,
-                )
-            # The link only works once the email has gone out.
-            db.add(
-                PasswordReset(user_id=user.id, token_hash=token_hash(token), expires_at=datetime.now(UTC) + timedelta(hours=1))
-            )
-        audit.record(db, "password_reset_requested", user_id=user.id, ip=client_ip(request))
+            db.add(reset_row)
+            db.flush()
+            background.add_task(deliver_password_reset, reset_row.id, user.id, user.email, user.full_name, token)
+            audit.record(db, "password_reset_requested", user_id=user.id, ip=client_ip(request))
+        else:
+            audit.record(db, "password_reset_rate_limited", user_id=user.id, ip=client_ip(request))
         db.commit()
     return render(request, "auth/forgot.html", {"sent": True})
+
+
+def deliver_password_reset(reset_id, user_id, address: str, full_name: str, token: str) -> None:
+    """Runs after the response. If the email does not go out, the link stops working (it still counts towards the
+    hourly limit) and the failure is audited and logged by user ID, never by address."""
+    link = f"{get_settings().base_url}/reset-password/{token}"
+    result = send_email(
+        address,
+        "Reset your Batchlight password",
+        f"Hello {full_name},\n\nUse this link within one hour to choose a new password:\n{link}\n\n"
+        "If you didn't ask for this, you can ignore this email.",
+    )
+    if result.status == "sent":
+        return
+    with session_scope() as session:
+        reset_row = session.get(PasswordReset, reset_id)
+        if reset_row is not None:
+            reset_row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        audit.record(
+            session, "password_reset_email_failed", user_id=user_id, status=result.status, error=(result.error or "")[:200]
+        )
+    log.warning("password reset email not delivered: user_id=%s status=%s", user_id, result.status)
 
 
 def _valid_reset(db, token: str) -> PasswordReset | None:

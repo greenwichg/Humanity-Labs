@@ -53,3 +53,15 @@ run "smtp_credentials_come_from_the_bootstrap_secret" {
     error_message = "the platform must read the SMTP secret created by the bootstrap stack, not create its own"
   }
 }
+
+run "failed_email_deliveries_raise_an_alarm" {
+  command = plan
+  assert {
+    condition     = aws_cloudwatch_log_metric_filter.email_delivery_failed.pattern == "\"EMAIL_DELIVERY_FAILED\"" && aws_cloudwatch_log_metric_filter.email_delivery_failed.log_group_name == "/ecs/humanity-labs"
+    error_message = "the metric filter must count the app's EMAIL_DELIVERY_FAILED log lines"
+  }
+  assert {
+    condition     = contains(aws_cloudwatch_metric_alarm.email_delivery_failed.alarm_actions, "arn:aws:sns:ap-south-1:111122223333:humanity-labs-alerts") && aws_cloudwatch_metric_alarm.email_delivery_failed.threshold == 0
+    error_message = "any failed delivery must notify the alert topic"
+  }
+}

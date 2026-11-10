@@ -1,5 +1,5 @@
 # Database alarms. They notify the <project>-alerts SNS topic created by the bootstrap stack (subscribe your email
-# there with -var alert_email=...). Eight alarms across both stacks stay inside CloudWatch's free tier of ten.
+# there with -var alert_email=...). Nine alarms across both stacks stay inside CloudWatch's free tier of ten.
 
 data "aws_caller_identity" "current" {}
 data "aws_partition" "current" {}
@@ -66,6 +66,34 @@ resource "aws_cloudwatch_metric_alarm" "db_connections_high" {
   evaluation_periods  = 2
   comparison_operator = "GreaterThanThreshold"
   threshold           = 70
+  alarm_actions       = [local.alerts_topic_arn]
+  ok_actions          = [local.alerts_topic_arn]
+}
+
+# Failed email deliveries (password resets, invitations, alert digests). The app logs a fixed marker with the
+# address masked, so this counts failures without anything in the logs or the alarm showing who they were for.
+resource "aws_cloudwatch_log_metric_filter" "email_delivery_failed" {
+  name           = "${var.project}-email-delivery-failed"
+  log_group_name = aws_cloudwatch_log_group.app.name
+  pattern        = "\"EMAIL_DELIVERY_FAILED\""
+  metric_transformation {
+    name      = "EmailDeliveryFailed"
+    namespace = "HumanityLabs"
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "email_delivery_failed" {
+  alarm_name          = "${var.project}-email-delivery-failed"
+  alarm_description   = "Emails (password resets, invitations or alerts) failed to send in the last 5 minutes. Check SES and the SMTP credentials; the audit log has password_reset_email_failed events."
+  namespace           = "HumanityLabs"
+  metric_name         = aws_cloudwatch_log_metric_filter.email_delivery_failed.metric_transformation[0].name
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
   alarm_actions       = [local.alerts_topic_arn]
   ok_actions          = [local.alerts_topic_arn]
 }

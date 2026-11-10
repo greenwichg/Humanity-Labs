@@ -232,7 +232,7 @@ Password resets, invitations and alert emails depend on email, so production req
 - **Startup:** the web and worker processes refuse to start in production unless email is set to SMTP with a real host, user name and password, STARTTLS, and a sender address.
 - **Deploys:** every deploy checks, before rolling anything out, that SES has production access, the sender domain is verified, and the SMTP login works (`python -m batchlight.cli email-check`, which sends nothing).
 - **Honest results:** the site never says an email went out when it didn't:
-  - if a reset email fails, the page says so and asks the user to try again, and no reset link is stored;
+  - a password-reset request always gets the same page and status, whether the address has no account, has asked too often, or its email failed. The page never says an email was sent. The email goes out after the response, so timing gives nothing away either. If delivery fails, the link stops working, and the failure is recorded for operators (see Monitoring);
   - an invitation says whether it was emailed, or that sending failed, and always shows the link to pass on.
 
 Set it up **before the first provision**, in Amazon SES in `ap-south-1`:
@@ -291,7 +291,7 @@ Edit the Terraform under `infra/terraform/platform` or `infra/terraform/app` and
 
 ## Monitoring and alerts
 
-Eight CloudWatch alarms email the address you gave the bootstrap stack. Eight alarms stay within CloudWatch's free tier of ten.
+Nine CloudWatch alarms email the address you gave the bootstrap stack. Nine alarms stay within CloudWatch's free tier of ten.
 
 | Alarm | Fires when |
 |---|---|
@@ -303,11 +303,13 @@ Eight CloudWatch alarms email the address you gave the bootstrap stack. Eight al
 | `<project>-db-cpu-high` | database CPU above 80% for 15 minutes |
 | `<project>-db-cpu-surplus-charged` | the burstable database is spending CPU credits that AWS bills |
 | `<project>-db-connections-high` | more than 70 database connections |
+| `<project>-email-delivery-failed` | any email (password reset, invitation or alert) failed to send in 5 minutes. It counts the app's `EMAIL_DELIVERY_FAILED` log lines, which mask the address |
 
 Other notices:
 
 - **Cost.** The monthly budget emails at 80% of actual spend and at 100% of forecast spend.
 - **Failed GitHub runs.** GitHub emails failures of scheduled workflows (the daily backup) to the person who last changed the schedule, and failures of other runs to whoever started them.
+- **Password resets.** Because the reset page looks the same in every case, check the audit log (the `audit_events` table) for what really happened. It records, by user ID, `password_reset_requested`, `password_reset_rate_limited` and `password_reset_email_failed` (with the delivery status). The application log has a matching `password reset email not delivered` line, also by user ID.
 
 ## Backups
 
@@ -460,7 +462,7 @@ Prices are for `ap-south-1` from the AWS Price List API, retrieved in November 2
 | RDS gp3 storage, 20 GB | $0.131/GB-month | $2.62 |
 | Backup storage (35 days of point-in-time recovery plus daily snapshots) | free up to the database's allocated storage (20 GB) while it exists, then $0.095/GB-month | $0 to start |
 | RDS CPU credits | db.t4g instances always run in Unlimited mode: CPU above the baseline is billed at $0.075 per vCPU-hour | $0 at low load; up to about $99 if the database ran at full CPU all month |
-| Alarms, alert emails, budget | 8 alarms (CloudWatch's free tier covers 10), SNS email, one budget | $0 |
+| Alarms, alert emails, budget | 9 alarms and 1 log metric (CloudWatch's free tier covers 10 of each), SNS email, one budget | $0 |
 | AWS WAF | $5 per web ACL + $1 per rule (4 rules) + $0.60 per million requests | about $9.60–10.80 |
 | Secrets Manager, 3 secrets | $0.40 each + $0.05 per 10,000 reads | $1.20 |
 | ECR image storage | $0.10/GB-month, at most 30 images kept | about $0.50–1 |

@@ -94,5 +94,6 @@ def send_email(to: str, subject: str, text: str) -> SendResult:
             smtp.send_message(message)
         return SendResult("sent")
     except (OSError, smtplib.SMTPException) as exc:
-        log.warning("email to %s failed: %s", to, exc)
+        # A fixed marker for the CloudWatch metric filter and alarm; the address is masked.
+        log.warning("EMAIL_DELIVERY_FAILED to=%s error=%s", _mask(to), str(exc)[:200])
         return SendResult("failed", str(exc)[:500])

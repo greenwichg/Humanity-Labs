@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import re
 import smtplib
 import sys
 
@@ -165,41 +166,121 @@ def test_email_check_fails_on_incomplete_settings_without_connecting(settings_en
     assert fake_smtp.calls == []
 
 
-# --------------------------------------------------------------------------- password reset never claims a failed send
+# --------------------------------------------------------------------------- password reset: same answer in every case
 
 
-@pytest.mark.parametrize("status", ["failed", "skipped"])
-def test_password_reset_says_so_when_the_email_did_not_go_out(client, make_client, db, monkeypatch, status):
+OWNER = "owner@example.org"
+UNIFORM_TEXT = "If that email belongs to an account, we'll try to send it a link to reset the password."
+
+
+def forgot(client, address):
+    response = post_form(client, "/forgot-password", {"email": address})
+    return response.status_code, response.text, response.headers.get("content-type"), sorted(response.cookies.keys())
+
+
+def valid_links(db) -> int:
+    from datetime import UTC, datetime
+
+    db.expire_all()
+    return db.scalar(
+        select(func.count())
+        .select_from(PasswordReset)
+        .where(PasswordReset.used_at.is_(None), PasswordReset.expires_at > datetime.now(UTC))
+    )
+
+
+def test_forgot_password_answer_is_identical_whatever_happened(client, make_client, db, monkeypatch, caplog):
+    """No account, sent, delivery failed, delivery skipped, rate limited: same status, same body, same headers."""
     from batchlight.web.routes import auth_routes
 
     signup(client)
-    monkeypatch.setattr(auth_routes, "send_email", lambda *a, **k: SendResult(status, "smtp down"))
-    response = post_form(make_client(), "/forgot-password", {"email": "owner@example.org"})
-    assert response.status_code == 503
-    text = html.unescape(response.text)
-    assert "couldn't send the reset email" in text
-    assert "we've sent" not in text
-    assert db.scalar(select(func.count()).select_from(PasswordReset)) == 0  # no live link without an email
-    assert db.scalar(select(AuditEvent.action).where(AuditEvent.action == "password_reset_email_failed"))
+    visitor = make_client()
+    real_send = auth_routes.send_email
+    answers = {}
+
+    answers["no account"] = forgot(visitor, "nobody@example.org")
+    answers["sent"] = forgot(visitor, OWNER)
+    monkeypatch.setattr(auth_routes, "send_email", lambda *a, **k: SendResult("failed", "SMTP 454 throttled"))
+    with caplog.at_level("WARNING", logger="batchlight.auth"):
+        answers["delivery failed"] = forgot(visitor, OWNER)
+    monkeypatch.setattr(auth_routes, "send_email", lambda *a, **k: SendResult("skipped", "Email delivery is disabled"))
+    answers["delivery skipped"] = forgot(visitor, OWNER)
+    monkeypatch.setattr(auth_routes, "send_email", real_send)
+    answers["rate limited"] = forgot(visitor, OWNER)  # the fourth request in the hour
+    answers["unknown, mixed case"] = forgot(visitor, "Nobody@Example.org")
+
+    reference = answers["no account"]
+    assert reference[0] == 200
+    assert UNIFORM_TEXT in html.unescape(reference[1])
+    for case, answer in answers.items():
+        assert answer[0] == reference[0], f"status differs for {case}"
+        assert answer[1] == reference[1], f"body differs for {case}"
+        assert answer[2:] == reference[2:], f"headers or cookies differ for {case}"
+    text = html.unescape(reference[1])
+    assert "we've sent" not in text and "couldn't send" not in text  # never claims either way
+
+    # What actually happened is still recorded, by user, for operators.
+    actions = db.scalars(select(AuditEvent.action).order_by(AuditEvent.id)).all()
+    assert actions.count("password_reset_requested") == 3
+    assert actions.count("password_reset_email_failed") == 2
+    assert actions.count("password_reset_rate_limited") == 1
+    failures = db.scalars(select(AuditEvent).where(AuditEvent.action == "password_reset_email_failed")).all()
+    assert all(event.user_id is not None for event in failures)
+    assert len(OUTBOX) == 1  # only the "sent" case delivered anything
+    assert valid_links(db) == 1  # links whose email failed no longer work
+    assert "password reset email not delivered" in caplog.text
+    assert OWNER not in caplog.text  # logged by user ID, never by address
 
 
-def test_password_reset_link_is_stored_only_after_the_email_is_sent(client, make_client, db):
+def test_failed_delivery_link_does_not_work(client, make_client, db, monkeypatch):
+    from batchlight.web.routes import auth_routes
+
     signup(client)
-    response = post_form(make_client(), "/forgot-password", {"email": "owner@example.org"})
-    assert response.status_code == 200 and "we've sent a link" in html.unescape(response.text)
-    assert db.scalar(select(func.count()).select_from(PasswordReset)) == 1
-    assert len(OUTBOX) == 1
+    captured = {}
+
+    def failing_send(to, subject, text):
+        captured["path"] = re.search(r"http://testserver(/reset-password/\S+)", text).group(1)
+        return SendResult("failed", "connection refused")
+
+    monkeypatch.setattr(auth_routes, "send_email", failing_send)
+    status, *_ = forgot(make_client(), OWNER)
+    assert status == 200
+    visitor = make_client()
+    assert "This link has expired" in visitor.get(captured["path"]).text
+    assert post_form(visitor, captured["path"], {"password": "a brand new passphrase"}).status_code == 400
 
 
-def test_password_reset_rate_limit_sends_nothing_and_says_only_what_is_true(client, make_client, db):
+def test_delivery_runs_after_the_response(client, make_client, monkeypatch):
+    """The email is sent by a background task, so a slow mail server cannot reveal an account by timing."""
+    from batchlight.db import session_scope
+    from batchlight.web.routes import auth_routes
+
     signup(client)
-    other = make_client()
-    for _ in range(3):
-        post_form(other, "/forgot-password", {"email": "owner@example.org"})
-    assert len(OUTBOX) == 3
-    response = post_form(other, "/forgot-password", {"email": "owner@example.org"})
-    assert len(OUTBOX) == 3  # the fourth request sends nothing
-    assert "at most three links an hour" in response.text  # so "use the most recent email" is the honest advice
+    seen = []
+
+    def record(reset_id, user_id, address, *rest):
+        # Only after the response has been produced is the request's transaction committed and visible elsewhere.
+        with session_scope() as other:
+            seen.append((address, other.get(PasswordReset, reset_id) is not None))
+
+    monkeypatch.setattr(auth_routes, "deliver_password_reset", record)
+    forgot(make_client(), OWNER)
+    assert seen == [(OWNER, True)]
+
+
+def test_failed_smtp_delivery_is_logged_with_a_marker_and_masked_address(settings_env, caplog, monkeypatch):
+    class BrokenSMTP:
+        def __init__(self, *a, **k):
+            raise ConnectionRefusedError("connection refused")
+
+    settings_env(**{**PRODUCTION_SMTP, "BATCHLIGHT_ENV": "test"})
+    monkeypatch.setattr(email.smtplib, "SMTP", BrokenSMTP)
+    with caplog.at_level("WARNING", logger="batchlight.email"):
+        result = email.send_email("person@example.org", "Reset your Batchlight password", "link")
+    assert result.status == "failed"
+    assert "EMAIL_DELIVERY_FAILED" in caplog.text  # counted by the CloudWatch metric filter and alarm
+    assert "p***@example.org" in caplog.text
+    assert "person@example.org" not in caplog.text
 
 
 # --------------------------------------------------------------------------- invitations say what really happened
