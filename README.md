@@ -16,6 +16,7 @@ This repository started with a research exercise: 16 research agents investigate
 - [docs/research/SELECTION.md](docs/research/SELECTION.md): ranking, selection rationale, risks and runners-up
 - [docs/research/opportunities.md](docs/research/opportunities.md): the 26 opportunities with competitive analysis
 - [docs/research/problems.md](docs/research/problems.md): all 48 problems with sources
+- [docs/USER_FACING_FEATURES.md](docs/USER_FACING_FEATURES.md): a visual tour of every major screen in Food Safety, Medicine Safety and Infrastructure Transparency, with 57 screenshots
 - [docs/PRODUCT.md](docs/PRODUCT.md): vision, personas, journeys, feature priorities, differentiation, outcomes and sustainability model
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture, data model, matching algorithm, API, security and scalability
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): configuration and deployment
