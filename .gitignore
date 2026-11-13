@@ -17,3 +17,5 @@ playwright-report/
 *.tfplan
 tfplan*
 crash.log
+# Community photos stored locally in development
+media/

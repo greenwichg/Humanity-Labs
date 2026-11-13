@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "macros.html" import empty with context %}
+{% block title %}Compare {{ category.label|lower }} across places{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <nav class="text-sm text-ink-500"><a href="/community/rankings?category={{ category.slug }}&level={{ level }}">Back to rankings</a></nav>
+  <h1 class="mt-2 text-2xl font-bold">Compare: {{ category.label }}</h1>
+  <p class="mt-2 text-ink-600">Same category, same level ({{ LEVEL_LABELS[level]|lower }}), side by side. Other categories are not included.</p>
+  {% if items %}
+  <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    {% for u in items %}
+    <div class="card card-pad">
+      <p class="font-semibold"><a href="/community/places/{{ level }}/{{ u.key }}">{{ u.name }}</a></p>
+      <p class="mt-2 text-3xl font-bold tabular-nums">{{ u.mean }}<span class="text-base font-normal text-ink-500">/100</span></p>
+      <p class="text-sm text-ink-600">{% if u.margin is not none %}± {{ u.margin }} · {% endif %}{{ u.n }} photo{{ 's' if u.n != 1 }} from {{ u.contributors }} contributor{{ 's' if u.contributors != 1 }}</p>
+      <p class="mt-1 text-sm">{{ 'Rank ' ~ u.rank if u.ranked else 'Not ranked: ' ~ u.why_not_ranked }}</p>
+      <p class="mt-1 text-xs text-ink-500">Coverage: {{ u.coverage }} · average confidence {{ u.confidence|pct }} · {{ u.first|date }} to {{ u.last|date }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% if months %}
+  <div class="card mt-6 overflow-x-auto">
+    <table class="w-full text-left text-sm">
+      <caption class="p-3 text-left font-semibold">Monthly average score (number of photos)</caption>
+      <thead class="bg-ink-50 text-xs uppercase text-ink-500"><tr><th class="px-3 py-2">Month</th>{% for u in items %}<th class="px-3 py-2">{{ u.name }}</th>{% endfor %}</tr></thead>
+      <tbody class="divide-y divide-ink-100">
+        {% for m in months %}<tr><td class="px-3 py-2">{{ m }}</td>{% for u in items %}{% set row = u.trend|selectattr('0', 'equalto', m)|list %}<td class="px-3 py-2 tabular-nums">{% if row %}{{ row[0][1] }} <span class="text-xs text-ink-500">({{ row[0][2] }})</span>{% else %}<span class="text-ink-400">—</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="mt-6">{{ empty("Nothing selected", "Tick up to four places in the rankings table, then press Compare.") }}</div>
+  {% endif %}
+</div>
+{% endblock %}

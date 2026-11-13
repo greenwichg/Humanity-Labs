@@ -68,9 +68,23 @@ class Settings(BaseSettings):
     login_max_failures: int = 8
     login_window_minutes: int = 15
 
+    # Community infrastructure. Uploads are off in production until photo storage there is approved and configured.
+    community_uploads: bool | None = None  # None: on outside production, off in production
+    media_dir: str = "media"  # local photo storage (development); production storage is designed as S3, not yet enabled
+    media_s3_bucket: str = ""  # set by Terraform only once the photo bucket is approved and created
+    model_dir: str = ""  # vision models; default ~/.cache/humanity-labs/models
+    vision_threads: int = 0  # ONNX Runtime threads; 0 means one per CPU
+    community_posts_per_day: int = 20
+    community_comments_per_hour: int = 60
+    community_notes_per_day: int = 10
+
     @property
     def is_production(self) -> bool:
         return self.env == "production"
+
+    @property
+    def uploads_enabled(self) -> bool:
+        return self.community_uploads if self.community_uploads is not None else not self.is_production
 
 
 @lru_cache

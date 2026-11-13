@@ -181,6 +181,12 @@ data "aws_iam_policy_document" "ecs_boundary" {
   }
   # Secrets Manager decrypts a secret with KMS on the reader's behalf (the secrets use the AWS managed key). A boundary
   # can limit what a key policy grants a role, so allow decryption here, but only when Secrets Manager asks for it.
+  # Community photos, if that bucket is ever created (platform/media.tf, off by default): objects under posts/ only.
+  statement {
+    sid       = "CommunityPhotos"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["arn:${data.aws_partition.current.partition}:s3:::${local.name_prefix}-media-${local.account_id}/posts/*"]
+  }
   statement {
     sid       = "DecryptSecretsOnlyThroughSecretsManager"
     actions   = ["kms:Decrypt"]
@@ -215,6 +221,17 @@ data "aws_iam_policy_document" "deploy" {
       "kms:DescribeKey", "kms:ListAliases", "sts:GetCallerIdentity", "servicediscovery:*"
     ]
     resources = ["*"]
+  }
+  # The Community photo bucket's own settings (platform/media.tf). Bucket configuration only: the deploy role cannot
+  # read or write the photos in it.
+  statement {
+    sid = "ManageMediaBucket"
+    actions = [
+      "s3:CreateBucket", "s3:ListBucket", "s3:GetBucket*", "s3:PutBucket*", "s3:GetEncryptionConfiguration",
+      "s3:PutEncryptionConfiguration", "s3:GetLifecycleConfiguration", "s3:PutLifecycleConfiguration",
+      "s3:GetAccelerateConfiguration", "s3:GetReplicationConfiguration"
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:s3:::${local.name_prefix}-media-${local.account_id}"]
   }
   # Read-only SES checks the deploy runs before rolling out: production access and the verified sending domain.
   statement {

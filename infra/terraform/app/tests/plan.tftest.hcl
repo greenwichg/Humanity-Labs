@@ -172,3 +172,43 @@ run "one_off_tasks_can_start_after_the_targeted_apply" {
     error_message = "the targeted apply must give the execution role access to the app's secrets"
   }
 }
+
+run "no_task_role_without_the_photo_bucket" {
+  command = plan
+  assert {
+    condition     = length(aws_iam_role.task) == 0 && aws_ecs_task_definition.web.task_role_arn == null && aws_ecs_task_definition.worker.task_role_arn == null
+    error_message = "the app must have no AWS permissions while the photo bucket does not exist"
+  }
+}
+
+run "task_role_reaches_only_photos_in_the_bucket" {
+  command = plan
+  override_data {
+    target = data.terraform_remote_state.platform
+    values = { outputs = {
+      vpc_id                       = "vpc-1", public_subnet_ids = ["subnet-a", "subnet-b"], app_security_group_id = "sg-app",
+      ecr_repository_url           = "111122223333.dkr.ecr.ap-south-1.amazonaws.com/humanity-labs", log_group_name = "/ecs/humanity-labs",
+      database_url_secret_arn      = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/database-url-a",
+      app_secret_key_arn           = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/app-secret-key-b",
+      smtp_secret_arn              = "arn:aws:secretsmanager:ap-south-1:111122223333:secret:humanity-labs/smtp-AbCdEf",
+      alerts_topic_arn             = "arn:aws:sns:ap-south-1:111122223333:humanity-labs-alerts",
+      ecs_permissions_boundary_arn = "arn:aws:iam::111122223333:policy/humanity-labs-ecs-boundary"
+      domain_name                  = "humanitylabs.in"
+      certificate_arn              = "arn:aws:acm:ap-south-1:111122223333:certificate/abc"
+      hosted_zone_id               = "Z0HUMANITYLABS"
+      media_bucket_name            = "humanity-labs-media-111122223333"
+    } }
+  }
+  assert {
+    condition     = aws_iam_role.task[0].name == "humanity-labs-ecs-task" && aws_iam_role.task[0].permissions_boundary == "arn:aws:iam::111122223333:policy/humanity-labs-ecs-boundary"
+    error_message = "the task role must match the deploy role's allowed prefix and carry the boundary"
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.task_media[0].policy).Statement[0].Resource == ["arn:aws:s3:::humanity-labs-media-111122223333/posts/*"] && toset(jsondecode(aws_iam_role_policy.task_media[0].policy).Statement[0].Action) == toset(["s3:GetObject", "s3:PutObject", "s3:DeleteObject"])
+    error_message = "the app may only read, write and delete photos under posts/"
+  }
+  assert {
+    condition     = contains([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].environment : e.name], "BATCHLIGHT_MEDIA_S3_BUCKET") && !contains([for e in jsondecode(aws_ecs_task_definition.web.container_definitions)[0].environment : e.name], "BATCHLIGHT_COMMUNITY_UPLOADS")
+    error_message = "the bucket is passed to the app, but uploads are not switched on by Terraform"
+  }
+}

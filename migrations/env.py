@@ -5,6 +5,7 @@ from __future__ import annotations
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+import batchlight.community.models  # noqa: F401  (registers the community tables on Base.metadata)
 from batchlight.config import get_settings
 from batchlight.models import Base
 

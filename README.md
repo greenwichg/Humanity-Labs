@@ -23,6 +23,7 @@ This repository started with a research exercise: 16 research agents investigate
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): configuration and deployment
 - [docs/AWS_DEPLOYMENT.md](docs/AWS_DEPLOYMENT.md): AWS with Terraform and GitHub Actions (production address https://humanitylabs.in): setup, domain, backups, recovery, teardown and costs
 - [docs/FOOD_SAFETY.md](docs/FOOD_SAFETY.md): the Food Safety module, its evidence policy and data coverage
+- [docs/COMMUNITY.md](docs/COMMUNITY.md): Community infrastructure photos: computer-vision assessment and how its thresholds were measured, duplicates, rankings, Community Notes, representative tagging, links to official records, and what turning on uploads in production needs
 - [docs/INDIA_COVERAGE.md](docs/INDIA_COVERAGE.md): India coverage today, what is not covered, and operator actions
 - [docs/research/FOOD_SAFETY_EVIDENCE.md](docs/research/FOOD_SAFETY_EVIDENCE.md): graded, fact-checked research on food safety in India
 
@@ -43,6 +44,8 @@ This repository started with a research exercise: 16 research agents investigate
 | Security | Argon2id passwords, hashed sessions, tokens and API keys, CSRF protection, strict CSP, login throttling, tenant isolation |
 
 Public works (`/infrastructure`): Project Passports for public infrastructure in India, built from official records, with missing records shown openly. See [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md).
+
+Community (`/community`): people share photos of roads, bridges, schools and other public infrastructure. Open-source computer vision (CLIP, OWLv2, CLIPSeg, Florence-2, run locally) blurs faces and number plates and scores the visible condition with every criterion shown; duplicates are refused; Community Notes reach a status only when people who usually disagree agree; threaded discussion, rankings per category and place, the area's MP and MLA constituencies, and links to official project records only on a matching reference number. Uploads are off in production until approved. See [docs/COMMUNITY.md](docs/COMMUNITY.md).
 
 ## Run it locally
 

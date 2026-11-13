@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf, empty with context %}
+{% block title %}Community moderation{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <h1 class="text-2xl font-bold">Reports to review</h1>
+  <p class="mt-2 text-ink-600">Hiding removes a post, note or comment from public view; the record stays for audit.</p>
+  {% if reports %}
+  <ul class="mt-6 space-y-3">
+    {% for r in reports %}
+    <li class="card card-pad flex flex-wrap items-center justify-between gap-3 text-sm">
+      <div>
+        <p class="font-semibold">{{ r.target_type|title }}: {{ REPORT_REASONS.get(r.reason, r.reason) }}</p>
+        {% if r.details %}<p class="mt-1 text-ink-700">{{ r.details }}</p>{% endif %}
+        <p class="mt-1 text-ink-500">{{ r.created_at|date }} · {% if r.target_type == 'post' %}<a href="/community/posts/{{ r.target_id }}">open the post</a>{% else %}id {{ r.target_id }}{% endif %}</p>
+      </div>
+      <div class="flex gap-2">
+        <form method="post" action="/community/moderation/{{ r.id }}">{{ csrf() }}<button name="action" value="hide" class="btn-primary btn-sm">Hide it</button></form>
+        <form method="post" action="/community/moderation/{{ r.id }}">{{ csrf() }}<button name="action" value="dismiss" class="btn-secondary btn-sm">Dismiss</button></form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="mt-6">{{ empty("Nothing to review", "New reports from contributors appear here.") }}</div>
+  {% endif %}
+</div>
+{% endblock %}

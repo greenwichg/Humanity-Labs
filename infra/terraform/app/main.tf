@@ -35,11 +35,39 @@ resource "aws_iam_role_policy" "execution_secrets" {
   })
 }
 
+# Community photos: only when the platform stack has created the media bucket (community_media = true, approved).
+# The task role can read, write and delete photos under posts/ in that bucket and nothing else.
+locals {
+  media_bucket = try(local.platform.media_bucket_name, "")
+  media_on     = local.media_bucket != ""
+}
+
+resource "aws_iam_role" "task" {
+  count                = local.media_on ? 1 : 0
+  name                 = "${var.project}-ecs-task"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  permissions_boundary = local.platform.ecs_permissions_boundary_arn
+}
+
+resource "aws_iam_role_policy" "task_media" {
+  count = local.media_on ? 1 : 0
+  name  = "community-photos"
+  role  = aws_iam_role.task[0].id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+      Resource = ["arn:aws:s3:::${local.media_bucket}/posts/*"]
+    }]
+  })
+}
+
 # ---------------------------------------------------------------- tasks
 
 locals {
   image = "${local.platform.ecr_repository_url}:${var.image_tag}"
-  environment = [
+  environment = concat([
     { name = "BATCHLIGHT_ENV", value = "production" },
     { name = "BATCHLIGHT_BASE_URL", value = local.base_url },
     { name = "BATCHLIGHT_SECURE_COOKIES", value = tostring(local.https) },
@@ -52,7 +80,7 @@ locals {
     { name = "BATCHLIGHT_SMTP_PORT", value = tostring(var.smtp_port) },
     { name = "BATCHLIGHT_DB_POOL_SIZE", value = tostring(var.db_pool_size) },
     { name = "BATCHLIGHT_DB_MAX_OVERFLOW", value = tostring(var.db_max_overflow) },
-  ]
+  ], local.media_on ? [{ name = "BATCHLIGHT_MEDIA_S3_BUCKET", value = local.media_bucket }] : [])
   secrets = [
     { name = "BATCHLIGHT_DATABASE_URL", valueFrom = local.platform.database_url_secret_arn },
     { name = "BATCHLIGHT_SECRET_KEY", valueFrom = local.platform.app_secret_key_arn },
@@ -90,6 +118,7 @@ resource "aws_ecs_task_definition" "web" {
   cpu                      = var.web_cpu
   memory                   = var.web_memory
   execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = local.media_on ? aws_iam_role.task[0].arn : null
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = var.cpu_architecture
@@ -117,6 +146,7 @@ resource "aws_ecs_task_definition" "worker" {
   cpu                      = var.worker_cpu
   memory                   = var.worker_memory
   execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = local.media_on ? aws_iam_role.task[0].arn : null
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = var.cpu_architecture
@@ -143,6 +173,7 @@ resource "aws_ecs_task_definition" "cli" {
   cpu                      = var.worker_cpu
   memory                   = var.worker_memory
   execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = local.media_on ? aws_iam_role.task[0].arn : null
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = var.cpu_architecture

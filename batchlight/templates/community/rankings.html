@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "macros.html" import empty with context %}
+{% block title %}{{ category.label }}: rankings by {{ LEVEL_LABELS[level]|lower }}{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <h1 class="text-2xl font-bold">Rankings: {{ category.label }}</h1>
+  <p class="mt-2 max-w-3xl text-ink-600">Average visible-condition scores from community photos of {{ category.label|lower }} only. Each category has its own criteria and its own rankings; categories are never combined. A place is ranked only with at least {{ MIN_RANK }} scored photos from at least {{ MIN_CONTRIBUTORS }} contributors.</p>
+
+  <form method="get" class="mt-6 flex flex-wrap items-end gap-3">
+    <div>
+      <label for="r-category" class="label">Category</label>
+      <select id="r-category" name="category" class="input" data-autosubmit>{% for c in CATEGORIES %}<option value="{{ c.slug }}" {% if c.slug == category.slug %}selected{% endif %}>{{ c.label }}</option>{% endfor %}</select>
+    </div>
+    <fieldset>
+      <legend class="label">Level</legend>
+      <div class="flex flex-wrap gap-1">
+        {% for l in LEVELS %}<a href="?category={{ category.slug }}&level={{ l }}{% if state and l != 'country' %}&state={{ state }}{% endif %}" class="rounded-lg px-3 py-2 text-sm no-underline ring-1 {{ 'bg-ink-900 text-white ring-ink-900' if l == level else 'bg-white text-ink-800 ring-ink-200' }}">{{ LEVEL_LABELS[l] }}</a>{% endfor %}
+      </div>
+      <input type="hidden" name="level" value="{{ level }}">
+    </fieldset>
+    {% if level in ('village', 'town', 'city', 'state') %}
+    <div>
+      <label for="r-state" class="label">Within</label>
+      <select id="r-state" name="state" class="input" data-autosubmit><option value="">All of India</option>{% for r in REGIONS %}<option value="{{ r.slug }}" {% if r.slug == state %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
+    </div>
+    {% endif %}
+    <noscript><button class="btn-secondary" type="submit">Show</button></noscript>
+  </form>
+
+  {% if items %}
+  <form method="get" action="/community/compare" class="mt-6">
+    <input type="hidden" name="category" value="{{ category.slug }}"><input type="hidden" name="level" value="{{ level }}">
+    <div class="card overflow-x-auto">
+      <table class="w-full text-left text-sm">
+        <thead class="bg-ink-50 text-xs uppercase text-ink-500">
+          <tr><th class="px-3 py-2"><span class="sr-only">Compare</span></th><th class="px-3 py-2">Rank</th><th class="px-3 py-2">{{ R.LEVEL_SINGULAR[level] }}</th><th class="px-3 py-2 text-right">Average score</th><th class="px-3 py-2 text-right">Photos</th><th class="px-3 py-2">Coverage and confidence</th><th class="px-3 py-2">Last 12 months</th></tr>
+        </thead>
+        <tbody class="divide-y divide-ink-100">
+          {% for u in items %}
+          <tr class="align-top {{ 'text-ink-500' if not u.ranked }}">
+            <td class="px-3 py-2"><input type="checkbox" name="key" value="{{ u.key }}" aria-label="Compare {{ u.name }}"></td>
+            <td class="px-3 py-2 font-semibold">{{ u.rank if u.ranked else '—' }}</td>
+            <td class="px-3 py-2"><a href="/community/places/{{ level }}/{{ u.key }}" class="font-medium">{{ u.name }}</a>{% if u.state and level in ('village','town','city') %}<span class="block text-xs text-ink-500">{{ REGION_BY_SLUG[u.state].name }}</span>{% endif %}</td>
+            <td class="px-3 py-2 text-right tabular-nums"><span class="font-semibold">{{ u.mean }}</span>{% if u.margin is not none %}<span class="block text-xs text-ink-500">± {{ u.margin }}</span>{% endif %}</td>
+            <td class="px-3 py-2 text-right tabular-nums">{{ u.n }}<span class="block text-xs text-ink-500">{{ u.contributors }} contributor{{ 's' if u.contributors != 1 }}</span></td>
+            <td class="px-3 py-2"><span class="badge {{ 'bg-ink-100 text-ink-700' if not u.ranked else ('bg-emerald-100 text-emerald-900' if u.coverage in ('Good', 'Moderate') else 'bg-beam-100 text-ink-900') }}">{{ u.coverage }}</span>{% if u.why_not_ranked %}<span class="block text-xs">{{ u.why_not_ranked }}</span>{% endif %}<span class="block text-xs text-ink-500">average assessment confidence {{ u.confidence|pct }}</span></td>
+            <td class="px-3 py-2">{% set d = spark(u.trend) %}{% if d %}<svg width="120" height="28" viewBox="0 0 120 28" role="img" aria-label="Trend: {% for m, v, n in u.trend %}{{ m }} {{ v }}{{ ', ' if not loop.last }}{% endfor %}"><path d="{{ d }}" fill="none" stroke="currentColor" stroke-width="1.5" class="text-ink-700"/></svg>{% else %}<span class="text-xs text-ink-500">{{ u.trend|length }} month{{ 's' if u.trend|length != 1 }} of data</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button class="btn-secondary btn-sm mt-3" type="submit">Compare selected (up to 4)</button>
+  </form>
+  <p class="mt-4 max-w-3xl text-xs text-ink-500">± is a 95% margin of error from the spread of scores. A high average from few photos can change quickly. Scores describe what is visible in photos people chose to share, not a survey of every road, school or bridge. <a href="/community/about#rankings">How rankings work</a>.</p>
+  {% else %}
+  <div class="mt-6">{{ empty("No scored photos of " ~ category.label|lower ~ " yet", "Rankings appear as people share photos. A place needs " ~ MIN_RANK ~ " scored photos from " ~ MIN_CONTRIBUTORS ~ " contributors to be ranked.") }}</div>
+  {% endif %}
+</div>
+{% endblock %}

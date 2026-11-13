@@ -20,13 +20,13 @@ skip-check:
   - CKV_AWS_149   # secrets use the AWS-managed key; a customer key costs $1/month each
   - CKV_AWS_158   # logs: AWS-managed encryption
   - CKV_AWS_136   # ECR: AES-256 encryption
-  - CKV_AWS_145   # state bucket: SSE-S3 encryption
+  - CKV_AWS_145   # state and Community photo buckets: SSE-S3 encryption
   - CKV2_AWS_57   # rotating the database password needs a coordinated app restart; documented as a manual step
   - CKV_AWS_338   # logs are kept 30 days to limit cost
   - CKV2_AWS_11   # VPC flow logs are optional (CloudWatch cost)
-  - CKV_AWS_18    # state bucket access logging: optional
-  - CKV_AWS_144   # state bucket cross-region replication: optional
-  - CKV2_AWS_62   # state bucket event notifications: not needed
+  - CKV_AWS_18    # state and photo bucket access logging: optional (photos are served through the app, which logs access)
+  - CKV_AWS_144   # state and photo bucket cross-region replication: optional
+  - CKV2_AWS_62   # state and photo bucket event notifications: not needed (the worker polls the database)
   - CKV_AWS_394   # two zones are picked from the region's available zones at creation time
   - CKV_AWS_26    # alert topic carries alarm names only; CloudWatch cannot publish to a topic encrypted with the AWS-managed SNS key
   - CKV2_AWS_5    # the app security group is attached by the app stack (separate state)

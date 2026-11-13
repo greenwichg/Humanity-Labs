@@ -62,6 +62,20 @@ def run_infra_due() -> dict[str, str]:
     return results
 
 
+def process_community() -> None:
+    """Blur, assess and publish waiting community photos. Cheap when there are none."""
+    if not get_settings().uploads_enabled:
+        return
+    from .community.pipeline import process_pending
+
+    try:
+        counts = process_pending(session_scope, limit=5)
+        if counts["published"] or counts["failed"]:
+            log.info("community: %s", counts)
+    except Exception:  # noqa: BLE001 - community processing must not stop alert ingestion
+        log.exception("community processing failed")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Batchlight ingestion worker")
     parser.add_argument("--once", action="store_true", help="run every enabled source once and exit")
@@ -87,8 +101,9 @@ def main() -> None:
             return
         slept = 0
         while slept < interval and not _stop:
-            time.sleep(5)
-            slept += 5
+            process_community()
+            time.sleep(15)
+            slept += 15
         if _stop:
             return
 

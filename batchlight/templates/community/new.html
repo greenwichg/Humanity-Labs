@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf, field, textarea with context %}
+{% block title %}Share a photo of public infrastructure{% endblock %}
+{% block body %}
+<div class="container-page grid gap-8 py-8 lg:grid-cols-[1fr_20rem]">
+  <div>
+    <h1 class="text-2xl font-bold">Share a photo</h1>
+    <p class="mt-2 max-w-2xl text-ink-600">One photo of one piece of public infrastructure: a road, bridge, school, drain, water point and so on. Before it is shown, faces and number plates are blurred automatically and the photo is assessed.</p>
+
+    {% if not uploads_enabled %}
+    <p class="mt-6 rounded-xl bg-beam-50 p-4 text-sm ring-1 ring-beam-200">Photo sharing is not open here yet.</p>
+    {% else %}
+    {% if duplicate_of %}
+    <div class="mt-6 rounded-xl bg-beam-50 p-4 text-sm text-ink-900 ring-1 ring-beam-200" role="alert">
+      <p class="font-semibold">This photo is already on Humanity Labs.</p>
+      <p class="mt-1">To keep one place for each photo, it was not posted again. <a href="/community/posts/{{ duplicate_of }}">Open the existing post</a> to add a note or join the discussion.</p>
+    </div>
+    {% elif errors %}
+    <div class="mt-6 rounded-xl bg-red-50 p-4 text-sm text-red-900 ring-1 ring-red-200" role="alert">
+      <p class="font-semibold">Please check these answers:</p>
+      <ul class="mt-1 list-disc pl-5">{% for k, v in errors.items() %}<li>{{ v }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/community/new" enctype="multipart/form-data" class="mt-6 space-y-6">{{ csrf() }}
+      <section class="card card-pad space-y-4">
+        <h2 class="font-semibold">The photo</h2>
+        <div>
+          <label for="f-photo" class="label">Photo</label>
+          <input id="f-photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" class="input" required data-preview="photo-preview" {% if errors.get('photo') %}aria-invalid="true"{% endif %}>
+          <p class="hint">JPEG, PNG or WebP, up to 12 MB. Location and camera details in the file are removed.</p>
+          {% if errors.get('photo') %}<p class="field-error">{{ errors['photo'] }}</p>{% endif %}
+          <img id="photo-preview" alt="" class="mt-3 hidden max-h-72 rounded-lg ring-1 ring-ink-100">
+        </div>
+        <div>
+          <label for="f-category" class="label">What does it show?</label>
+          <select id="f-category" name="category" class="input" required>
+            <option value="">Choose a category</option>
+            {% for c in CATEGORIES %}<option value="{{ c.slug }}" {% if form.get('category') == c.slug %}selected{% endif %}>{{ c.label }}: {{ c.examples|lower }}</option>{% endfor %}
+          </select>
+          {% if errors.get('category') %}<p class="field-error">{{ errors['category'] }}</p>{% endif %}
+        </div>
+        {{ field("title", "Title", form, errors, required=True, placeholder="e.g. Potholes on Station Road near the bus stand") }}
+        {{ textarea("body", "What do you see?", form, errors, rows=4, hint="Describe what is visible and when you took the photo. Please don't name or accuse people; the community notes and discussion are for context.") }}
+      </section>
+
+      <section class="card card-pad space-y-4">
+        <h2 class="font-semibold">Where is it?</h2>
+        <div class="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          {{ field("latitude", "Latitude", form, errors, required=True, placeholder="e.g. 17.3850", attrs='inputmode="decimal"') }}
+          {{ field("longitude", "Longitude", form, errors, required=True, placeholder="e.g. 78.4867", attrs='inputmode="decimal"') }}
+          <button type="button" class="btn-secondary" data-geolocate>Use my location</button>
+        </div>
+        <input type="hidden" name="location_source" value="{{ form.get('location_source', 'pin') }}">
+        <p class="hint">Stand where you took the photo and press "Use my location", or copy the coordinates from a maps app (in most apps, press and hold on the place). {% if errors.get('location') %}<span class="field-error">{{ errors['location'] }}</span>{% endif %}</p>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label for="f-state_slug" class="label">State or union territory</label>
+            <select id="f-state_slug" name="state_slug" class="input" required>
+              <option value="">Choose</option>
+              {% for r in REGIONS %}<option value="{{ r.slug }}" {% if form.get('state_slug') == r.slug %}selected{% endif %}>{{ r.name }}</option>{% endfor %}
+            </select>
+            {% if errors.get('state_slug') %}<p class="field-error">{{ errors['state_slug'] }}</p>{% endif %}
+          </div>
+          {{ field("district", "District", form, errors, placeholder="e.g. Rangareddy") }}
+        </div>
+        <div class="grid gap-3 sm:grid-cols-[10rem_1fr]">
+          <div>
+            <label for="f-locality_kind" class="label">Village, town or city?</label>
+            <select id="f-locality_kind" name="locality_kind" class="input" required>
+              {% for k in LOCALITY_KINDS %}<option value="{{ k }}" {% if form.get('locality_kind') == k %}selected{% endif %}>{{ k|title }}</option>{% endfor %}
+            </select>
+          </div>
+          {{ field("locality_name", "Its name", form, errors, required=True, placeholder="e.g. Shamshabad") }}
+        </div>
+      </section>
+
+      <section class="card card-pad space-y-3">
+        <h2 class="font-semibold">Official reference <span class="font-normal text-ink-500">(optional)</span></h2>
+        <p class="text-sm text-ink-600">Public works often have a board on site with a tender reference, a PMGSY package number or a project code. If you can read one, type it exactly. It is the only way this post is linked to an official project record.</p>
+        {{ field("official_reference", "Reference number on the site board", form, errors, placeholder="e.g. AP03-123 or IN-AMC-409867-CW-RFP") }}
+      </section>
+
+      <section class="card card-pad">
+        <label class="flex items-start gap-3 text-sm">
+          <input type="checkbox" name="consent" value="yes" class="mt-1" required {% if form.get('consent') == 'yes' %}checked{% endif %}>
+          <span>I took this photo or may share it. It shows public infrastructure, I took it without putting myself at risk, and I understand it will be public under my name, with faces and number plates blurred.</span>
+        </label>
+        {% if errors.get('consent') %}<p class="field-error mt-2">{{ errors['consent'] }}</p>{% endif %}
+      </section>
+
+      <button class="btn-primary" type="submit">Share the photo</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <aside class="space-y-4 text-sm">
+    <div class="card card-pad">
+      <h2 class="font-semibold">What happens next</h2>
+      <ol class="mt-2 list-decimal space-y-1 pl-5 text-ink-700">
+        <li>The photo is checked for blur, darkness and duplicates. A photo already on the site is not posted twice.</li>
+        <li>Faces and number plates are blurred.</li>
+        <li>Computer vision describes what is visible and scores its condition, with its evidence and confidence.</li>
+        <li>The area's MP and MLA are listed, and a reference number is checked against official records.</li>
+        <li>The post goes public. Others can add notes and discuss it.</li>
+      </ol>
+    </div>
+    <div class="card card-pad">
+      <h2 class="font-semibold">A photo works best when</h2>
+      <ul class="mt-2 list-disc space-y-1 pl-5 text-ink-700">
+        <li>it is taken in daylight and in focus;</li>
+        <li>the damage, or the good condition, fills much of the frame;</li>
+        <li>it shows one thing: one stretch of road, one bridge, one building.</li>
+      </ul>
+      <p class="mt-2 text-ink-600">A score describes only what is visible. It never says whether a structure is safe.</p>
+    </div>
+  </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf, empty with context %}
+{% from "community/_macros.html" import note_status with context %}
+{% block title %}Community notes to rate{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <h1 class="text-2xl font-bold">Community notes</h1>
+  <p class="mt-2 max-w-3xl text-ink-600">A note becomes Helpful only when contributors who usually rate differently both find it helpful; a majority alone is not enough. Rating notes is how that agreement is found. It needs at least {{ MIN_RATINGS }} ratings. <a href="/community/about#notes">How statuses are decided</a>.</p>
+  <nav class="mt-5 flex flex-wrap gap-2 text-sm" aria-label="Note status">
+    {% for s, label in STATUS_LABELS.items() %}
+    <a href="?status={{ s }}" class="rounded-full px-3 py-1 no-underline ring-1 {{ 'bg-ink-900 text-white ring-ink-900' if s == status else 'bg-white text-ink-800 ring-ink-200' }}">{{ label }} · {{ counts.get(s, 0) }}</a>
+    {% endfor %}
+    <a href="?status=all" class="rounded-full px-3 py-1 no-underline ring-1 {{ 'bg-ink-900 text-white ring-ink-900' if status == 'all' else 'bg-white text-ink-800 ring-ink-200' }}">All</a>
+  </nav>
+  {% if notes %}
+  <ol class="mt-6 space-y-4">
+    {% for n in notes %}
+    {% set p = posts.get(n.post_id) %}
+    <li class="card card-pad">
+      <p class="text-sm text-ink-500">On <a href="/community/posts/{{ n.post_id }}#note-{{ n.id }}">{{ p.title if p else 'a post' }}</a> · {{ CATEGORY_LABELS.get(p.category, '') if p else '' }}</p>
+      <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">{{ note_status(n.status) }} <span class="badge bg-ink-100 text-ink-700">{{ n.kind|title }}</span> <span class="text-ink-500">{{ n.ratings_count }} rating{{ 's' if n.ratings_count != 1 }}</span></div>
+      <p class="mt-2 whitespace-pre-line text-ink-900">{{ n.body }}</p>
+      {% if n.sources %}<p class="mt-1 text-xs">{% for s in n.sources %}<a href="{{ s }}" rel="noopener noreferrer nofollow ugc" target="_blank">{{ source_host(s) }}</a>{{ ' · ' if not loop.last }}{% endfor %}</p>{% endif %}
+      {% if auth and n.author_id != auth.user.id %}
+      <form method="post" action="/community/notes/{{ n.id }}/rate" class="mt-3 flex flex-wrap items-center gap-2 text-sm">{{ csrf() }}
+        <input type="hidden" name="next" value="/community/notes?status={{ status }}">
+        <span class="text-ink-600">Helpful?</span>
+        {% for r in RATINGS %}<button name="value" value="{{ r }}" class="rounded-full px-3 py-1 ring-1 {{ 'bg-ink-900 text-white ring-ink-900' if mine.get(n.id) == r else 'bg-white ring-ink-200 hover:bg-ink-50' }}">{{ {'helpful': 'Yes', 'somewhat': 'Somewhat', 'not_helpful': 'No'}[r] }}</button>{% endfor %}
+      </form>
+      {% elif not auth %}
+      <p class="mt-3 text-sm"><a href="/login?next=/community/notes">Sign in</a> to rate.</p>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <div class="mt-6">{{ empty("No notes here", "Notes appear here when contributors add context, corrections or evidence to posts.") }}</div>
+  {% endif %}
+</div>
+{% endblock %}

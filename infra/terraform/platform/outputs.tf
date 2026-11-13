@@ -20,3 +20,4 @@ output "ecs_permissions_boundary_arn" { value = "arn:${data.aws_partition.curren
 output "domain_name" { value = var.domain_name }
 output "certificate_arn" { value = local.certificate }
 output "hosted_zone_id" { value = local.has_domain ? data.aws_route53_zone.site[0].zone_id : "" }
+output "media_bucket_name" { value = var.community_media ? aws_s3_bucket.media[0].id : "" }

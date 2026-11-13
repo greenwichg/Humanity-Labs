@@ -18,7 +18,7 @@ from ..db import session_scope
 from ..ingest import ensure_sources
 from ..services.email import production_email_problems
 from .auth import CSRF_COOKIE, FLASH_COOKIE, CsrfFailed, Forbidden, LoginRequired, WorkspaceRequired, csrf_token
-from .routes import admin, admin_food, api, auth_routes, food, infra, public, workspace
+from .routes import admin, admin_food, api, auth_routes, community, food, infra, public, workspace
 from .templating import render
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -174,6 +174,7 @@ def create_app() -> FastAPI:
         public.router,
         food.router,
         infra.router,
+        community.router,
         auth_routes.router,
         workspace.router,
         admin.router,

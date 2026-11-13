@@ -34,6 +34,19 @@ def main(argv: list[str] | None = None) -> int:
     infra = sub.add_parser("infra-ingest", help="refresh public infrastructure sources now")
     infra.add_argument("--source", action="append", help="infra-wb-projects, infra-wb-civil-works or infra-cag-reports")
     infra.add_argument("--cag-pages", type=int, default=None, help="how many pages of the CAG report list to read")
+    models = sub.add_parser("community-models", help="download or check the pinned vision models for community photos")
+    models.add_argument("action", choices=["download", "status", "verify"])
+    process = sub.add_parser("community-process", help="blur, assess and publish community photos waiting in processing")
+    process.add_argument("--limit", type=int, default=50)
+    process.add_argument("--retry-failed", action="store_true", help="also retry posts whose processing failed")
+    bounds = sub.add_parser(
+        "community-boundaries", help="load Assembly and Lok Sabha constituency boundaries (DataMeet, CC BY 4.0)"
+    )
+    bounds.add_argument("--file", help="a local copy of the GeoJSON; by default it is downloaded")
+    roster = sub.add_parser("community-roster", help="load sitting MPs and MLAs from a CSV that names a source for every row")
+    roster.add_argument("file")
+    sub.add_parser("community-retag", help="re-tag representatives and re-check official links for all published posts")
+    sub.add_parser("community-notes", help="recompute community note statuses from all ratings")
     ingest = sub.add_parser("ingest", help="run ingestion once")
     ingest.add_argument("--source", action="append")
     args = parser.parse_args(argv)
@@ -116,6 +129,67 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{source_id}: {outcome}")
             failed |= outcome.startswith("failed")
         return 1 if failed else 0
+    if args.command.startswith("community-"):
+        return community_command(args)
+    return 2
+
+
+def community_command(args) -> int:
+    import json
+
+    import httpx
+
+    from .community import notes, pipeline, projects, reps
+    from .community.models import CommunityPost
+    from .community.vision import models as vision_models
+    from .db import session_factory
+
+    if args.command == "community-models":
+        if args.action == "download":
+            fetched = vision_models.download()
+            print(f"downloaded {len(fetched)} file(s); all models ready" if vision_models.ready() else "incomplete")
+        elif args.action == "status":
+            for key, state in vision_models.status().items():
+                print(f"{key}: {state}")
+        else:
+            bad = vision_models.verify()
+            print("all model files match their pinned SHA-256" if not bad else "mismatch: " + ", ".join(bad))
+            return 1 if bad else 0
+        return 0 if vision_models.ready() else 1
+    if args.command == "community-process":
+        if args.retry_failed:
+            with session_scope() as session:
+                session.query(CommunityPost).filter(
+                    CommunityPost.status == "processing", CommunityPost.analysis_status == "failed"
+                ).update({"analysis_status": "pending"})
+        print(pipeline.process_pending(session_scope, limit=args.limit))
+        return 0
+    if args.command == "community-boundaries":
+        if args.file:
+            with open(args.file, encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            data = httpx.get(reps.AC_URL, timeout=300, follow_redirects=True).raise_for_status().json()
+        with session_scope() as session:
+            print(reps.import_assembly_boundaries(session, data))
+        return 0
+    if args.command == "community-roster":
+        with open(args.file, encoding="utf-8") as f, session_scope() as session:
+            print(reps.import_roster(session, f.read()))
+        return 0
+    if args.command == "community-retag":
+        with session_scope() as session:
+            posts = session.query(CommunityPost).filter(CommunityPost.status == "published").all()
+            for post in posts:
+                reps.tag(session, post)
+                projects.link(session, post, post.author_id)
+            print(f"re-tagged {len(posts)} post(s)")
+        return 0
+    if args.command == "community-notes":
+        with session_scope() as session:
+            print(f"{notes.recompute(session)} status change(s)")
+        return 0
+    _ = session_factory
     return 2
 
 

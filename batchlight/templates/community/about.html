@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}How Community works{% endblock %}
+{% block description %}How community photos are checked, assessed, ranked and discussed, with every model, threshold and rule.{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <h1 class="text-2xl font-bold">How Community works</h1>
+  <p class="mt-2 max-w-3xl text-ink-600">Every model, threshold and rule used on these pages, so anyone can check how a score, a ranking, a note's status or a representative tag came about. Scoring engine version: <code>{{ ENGINE_VERSION }}</code>.</p>
+
+  <nav aria-label="On this page" class="mt-6 flex flex-wrap gap-2 text-sm">
+    {% for id, label in [("separate", "Four separate things"), ("photos", "Photos and privacy"), ("duplicates", "Duplicates"), ("models", "Models"), ("scores", "Scores"), ("thresholds", "How the thresholds were set"), ("criteria", "Criteria by category"), ("rankings", "Rankings"), ("notes", "Community Notes"), ("reps", "Representatives"), ("projects", "Official records")] %}
+    <a href="#{{ id }}" class="rounded-full bg-white px-3 py-1 no-underline ring-1 ring-ink-200">{{ label }}</a>
+    {% endfor %}
+  </nav>
+
+  <section id="separate" class="mt-10 max-w-3xl">
+    <h2 class="text-xl font-semibold">Four separate things</h2>
+    <p class="mt-2 text-ink-700">Each post shows four things, kept apart on purpose. None of them changes another.</p>
+    <dl class="mt-4 grid gap-3 sm:grid-cols-2">
+      <div class="card p-4"><dt class="font-semibold">Image assessment</dt><dd class="mt-1 text-sm text-ink-600">What open-source vision models see in the photo, turned into a visible-condition score with its criteria and confidence.</dd></div>
+      <div class="card p-4"><dt class="font-semibold">Community verification</dt><dd class="mt-1 text-sm text-ink-600">Community Notes add context. Their status comes from ratings across perspectives. Notes never change a score.</dd></div>
+      <div class="card p-4"><dt class="font-semibold">Scores and rankings</dt><dd class="mt-1 text-sm text-ink-600">Averages of image assessments, one category at a time. Categories are never combined.</dd></div>
+      <div class="card p-4"><dt class="font-semibold">Discussion</dt><dd class="mt-1 text-sm text-ink-600">Threaded comments. Votes on comments only order the discussion.</dd></div>
+    </dl>
+    <p class="mt-4 text-ink-700">Official project records (costs, agencies, contractors) come from Infrastructure Transparency, are marked <em>Official record</em> with their source, and are never mixed with what contributors observe.</p>
+    <p class="mt-4 rounded-lg bg-amber-50 p-4 text-sm text-amber-900 ring-1 ring-amber-200"><strong>What a score is not.</strong> A score describes only what is visible in one photo at one moment. It is not a safety rating, an engineering inspection or a judgment about hidden or structural defects, and no part of Community claims that a structure is safe or unsafe.</p>
+  </section>
+
+  <section id="photos" class="mt-10 max-w-3xl">
+    <h2 class="text-xl font-semibold">Photos and privacy</h2>
+    <ul class="mt-2 list-disc space-y-1 pl-5 text-ink-700">
+      <li>JPEG, PNG or WebP, at most 12 MB, at least 320 pixels on the shorter side. Animated images are refused.</li>
+      <li>All metadata is removed: the photo is rotated as the camera intended, then saved again without EXIF, GPS or camera details. A position found in the photo is offered to you as the post's location; it is never kept in the image.</li>
+      <li>Photos that are too blurred or too dark to show anything are refused. Photos that are low-resolution, blurred, dark, washed out or flat are kept but not scored, and the reason is shown.</li>
+      <li>Before a photo is published, the detector looks for {{ PRIVACY_QUERIES|join(" and ") }} with a deliberately low threshold ({{ PRIVACY_THRESHOLD|pct }}) and blurs every match. Blurring something harmless costs little; missing a face would not.</li>
+    </ul>
+  </section>
+
+  <section id="duplicates" class="mt-10 max-w-3xl">
+    <h2 class="text-xl font-semibold">Duplicate photos</h2>
+    <p class="mt-2 text-ink-700">A photo already shared is refused, and the earlier post is linked instead, so the same evidence is not counted twice.</p>
+    <ul class="mt-2 list-disc space-y-1 pl-5 text-ink-700">
+      <li><strong>Exact copies:</strong> the same file (SHA-256 of the upload), or the same pixels saved again in another format (SHA-256 of the decoded image).</li>
+      <li><strong>Near copies:</strong> resized, recompressed or lightly edited versions. Two 64-bit fingerprints are compared, a perceptual hash and a difference hash; a photo counts as a copy only when both are close: at most {{ PHASH_MAX }} and {{ DHASH_MAX }} differing bits.</li>
+      <li><strong>Repeats by the same person:</strong> a crop or a second, very similar photo of the same spot gets past both fingerprints. When the same contributor shares a photo of the same category within {{ REPEAT_METRES }} m and {{ REPEAT_HOURS }} hours of an earlier one, and the two are at least {{ REPEAT_SIMILARITY|pct }} alike to the image model, it stays visible but counts once in rankings. Similarity alone is not used across different people: different photos of similar potholes can look just as alike.</li>
+    </ul>
+  </section>
+
+  <section id="models" class="mt-10">
+    <h2 class="text-xl font-semibold">Models</h2>
+    <p class="mt-2 max-w-3xl text-ink-700">Four open-source models, run on our own servers on CPU with ONNX Runtime. Photos are not sent to any outside service. Each model is pinned to an exact version and checked by SHA-256 before use.</p>
+    <div class="card mt-4 overflow-x-auto">
+      <table class="w-full text-left text-sm">
+        <thead class="bg-ink-50 text-xs uppercase text-ink-500"><tr><th class="px-3 py-2">Used for</th><th class="px-3 py-2">Model and version</th><th class="px-3 py-2">Licence</th></tr></thead>
+        <tbody class="divide-y divide-ink-100">
+          {% for m in MODELS.values() %}
+          <tr class="align-top"><td class="px-3 py-2">{{ m.purpose }}</td><td class="px-3 py-2"><a href="https://huggingface.co/{{ m.repo }}/tree/{{ m.revision }}" rel="noopener">{{ m.repo }}</a><br><code class="text-xs text-ink-500">{{ m.revision[:12] }}</code></td><td class="px-3 py-2">{{ m.licence }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="mt-3 max-w-3xl text-sm text-ink-600">The written description comes from Florence-2. Any sentence in it about safety, structure, risk or failure is removed, because a photo cannot show those things reliably.</p>
+  </section>
+
+  <section id="scores" class="mt-10 max-w-3xl">
+    <h2 class="text-xl font-semibold">Scores</h2>
+    <p class="mt-2 text-ink-700">A score starts at 100. Each criterion removes up to its maximum points, and every post lists the points removed with the evidence and the method. The criteria for each category use descriptions of that category only.</p>
+    <ol class="mt-3 list-decimal space-y-2 pl-5 text-ink-700">
+      <li><strong>Visible condition.</strong> CLIP compares the photo with three descriptions of the category: in good, fair and poor condition. Points removed = maximum × (poor + 0.4 × fair).</li>
+      <li><strong>Damage-like regions.</strong> CLIPSeg outlines pixels whose probability of matching the category's damage descriptions is over {{ SEG_THRESHOLD|pct }}. The points grow with the outlined share of the photo and reach the maximum at {{ AREA_FULL|pct }}.</li>
+      <li><strong>Possible defects.</strong> OWLv2 marks boxes around the category's listed defects when its confidence is at least {{ DETECT_THRESHOLD|pct }}. The boxes are shown to help people look, but carry no points (see below).</li>
+    </ol>
+    <h3 class="mt-5 font-semibold">Confidence</h3>
+    <p class="mt-1 text-ink-700">0.35 × photo quality (1 if usable, 0.5 if not) + 0.35 × category fit + 0.30 × agreement between the condition rating and the outline. High is 0.75 or more, medium 0.5 or more, otherwise low. Category fit is how likely the photo shows the chosen category compared with the most likely one.</p>
+    <h3 class="mt-5 font-semibold">When a photo is not scored</h3>
+    <ul class="mt-1 list-disc space-y-1 pl-5 text-ink-700">
+      <li>the photo is not clear enough (the problems are listed on the post), or</li>
+      <li>the category fit is under {{ NOT_SCORED_FIT|pct }}: the photo may not show the chosen kind of infrastructure.</li>
+    </ul>
+    <p class="mt-2 text-ink-700">An unscored post is still published and can be discussed and noted; it is left out of averages and rankings.</p>
+  </section>
+
+  <section id="thresholds" class="mt-10 max-w-3xl">
+    <h2 class="text-xl font-semibold">How the thresholds were set</h2>
+    <p class="mt-2 text-ink-700">We ran the models on labelled photos and chose each threshold and weight from what they measured.</p>
+    <dl class="mt-3 divide-y divide-ink-100 rounded-lg bg-white ring-1 ring-ink-200">
+      {% for label, text in CALIBRATION %}
+      <div class="grid gap-1 p-3 sm:grid-cols-3"><dt class="font-medium">{{ label }}</dt><dd class="text-sm text-ink-700 sm:col-span-2">{{ text }}</dd></div>
+      {% endfor %}
+    </dl>
+  </section>
+
+  <section id="criteria" class="mt-10">
+    <h2 class="text-xl font-semibold">Criteria by category</h2>
+    <p class="mt-2 max-w-3xl text-ink-700">What the models look for in each category, exactly as used.</p>
+    <div class="mt-4 space-y-2">
+      {% for c in CATEGORIES %}
+      <details class="card p-4">
+        <summary class="cursor-pointer font-semibold">{{ c.label }} <span class="font-normal text-ink-500">· {{ c.examples }}</span></summary>
+        <dl class="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+          <div><dt class="font-medium">Condition descriptions (good, fair, poor)</dt><dd class="mt-1 text-ink-600">{% for p in c.condition_prompts %}“{{ p }}”{% if not loop.last %}<br>{% endif %}{% endfor %}</dd></div>
+          <div><dt class="font-medium">Possible defects looked for</dt><dd class="mt-1 text-ink-600">{% for d in c.defects %}{{ d.label }}{% if not loop.last %}, {% endif %}{% endfor %}</dd></div>
+          <div><dt class="font-medium">Damage descriptions for the outline</dt><dd class="mt-1 text-ink-600">{% for p in c.damage_prompts %}“{{ p }}”{% if not loop.last %}, {% endif %}{% endfor %}</dd></div>
+          <div><dt class="font-medium">Maximum points removed</dt><dd class="mt-1 text-ink-600">Visible condition {{ "%.0f"|format(c.weights.condition) }} · damage-like regions {{ "%.0f"|format(c.weights.area) }} · possible defects {{ "%.0f"|format(c.weights.defects) }}</dd></div>
+        </dl>
+      </details>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section id="rankings" class="mt-10 max-w-3xl">
+    <h2 class="text-xl font-semibold">Rankings</h2>
+    <ul class="mt-2 list-disc space-y-1 pl-5 text-ink-700">
+      <li>Each category is ranked on its own, at five levels: {% for l in R.LEVELS %}{{ R.LEVEL_LABELS[l]|lower }}{% if not loop.last %}, {% endif %}{% endfor %}. There is no combined ranking across categories.</li>
+      <li>A place's figure is the average score of its scored photos in that category, with the number of photos, the number of contributors, a 95% margin of error and the average confidence.</li>
+      <li>A place is ranked only with at least {{ R.MIN_RANK }} scored photos from at least {{ R.MIN_CONTRIBUTORS }} contributors. Below that it is listed, unranked, with the reason.</li>
+      <li>Trends show the monthly average over the last {{ R.TREND_MONTHS }} months.</li>
+      <li>Rankings reflect only the photos people chose to share. They are not a survey: a place with few photos, or photos of only its worst spots, is not fully represented.</li>
+    </ul>
+  </section>
+
+  <section id="notes" class="mt-10 max-w-3xl">
+    <h2 class="text-xl font-semibold">Community Notes</h2>
+    <p class="mt-2 text-ink-700">Notes add context to a post: a correction, the date of a repair, a source. Contributors rate notes as helpful, somewhat helpful or not helpful. A note's status does not depend on a simple vote count: it depends on agreement between people who usually rate differently.</p>
+    <p class="mt-2 text-ink-700">The method follows the open-source approach of X's Community Notes: every rating is modelled as an overall level, plus the rater's and the note's general tendencies, plus a match between the rater's and the note's position on one perspective axis learned from all ratings. A note's <em>helpfulness across perspectives</em> is what remains once that perspective match is taken out.</p>
+    <dl class="mt-3 divide-y divide-ink-100 rounded-lg bg-white ring-1 ring-ink-200">
+      <div class="grid gap-1 p-3 sm:grid-cols-3"><dt class="font-medium">{{ N.STATUS_LABELS.pending }}</dt><dd class="text-sm text-ink-700 sm:col-span-2">Fewer than {{ N.MIN_RATINGS }} ratings.</dd></div>
+      <div class="grid gap-1 p-3 sm:grid-cols-3"><dt class="font-medium">{{ N.STATUS_LABELS.helpful }}</dt><dd class="text-sm text-ink-700 sm:col-span-2">Helpfulness across perspectives of {{ "%.2f"|format(N.HELPFUL_INTERCEPT) }} or more, a perspective lean under {{ "%.2f"|format(N.FACTOR_LIMIT) }}, and at least {{ N.MIN_HELPFUL_PER_SIDE }} “helpful” ratings from each side of the perspective axis.</dd></div>
+      <div class="grid gap-1 p-3 sm:grid-cols-3"><dt class="font-medium">{{ N.STATUS_LABELS.not_helpful }}</dt><dd class="text-sm text-ink-700 sm:col-span-2">Rated not helpful across perspectives.</dd></div>
+      <div class="grid gap-1 p-3 sm:grid-cols-3"><dt class="font-medium">{{ N.STATUS_LABELS.disputed }}</dt><dd class="text-sm text-ink-700 sm:col-span-2">Ratings split along contributors' usual lines: one side found it helpful, the other did not.</dd></div>
+      <div class="grid gap-1 p-3 sm:grid-cols-3"><dt class="font-medium">{{ N.STATUS_LABELS.insufficient }}</dt><dd class="text-sm text-ink-700 sm:col-span-2">Enough ratings, but no agreement across perspectives yet.</dd></div>
+    </dl>
+    <p class="mt-3 text-ink-700">Statuses are recalculated whenever ratings change, and every change is kept in the note's history. Editing a note clears its ratings, because they were for the old text. Notes never change a photo's score.</p>
+  </section>
+
+  <section id="reps" class="mt-10 max-w-3xl">
+    <h2 class="text-xl font-semibold">Elected representatives</h2>
+    <p class="mt-2 text-ink-700">Each post's location is placed inside an assembly constituency and its parliamentary constituency using constituency boundaries from {{ REPS.AC_SOURCE }}. The representatives elected for those seats are shown as <em>representatives for this area</em>. This is a geographic fact only: it does not mean they are responsible for the work, which may belong to another level of government or another agency.</p>
+    <ul class="mt-2 list-disc space-y-1 pl-5 text-ink-700">
+      {% for kind, (level, role) in REPS.LEVELS.items() %}<li><strong>{{ level }}:</strong> {{ role }}.</li>{% endfor %}
+      {% for level, role, why in REPS.NOT_AVAILABLE %}<li><strong>{{ level }}:</strong> {{ role }}. {{ why }}</li>{% endfor %}
+    </ul>
+    <p class="mt-2 text-ink-700">Some boundaries in the open map predate the 2008 delimitation or later changes to state borders. Such seats are flagged on the post, and a name is shown only from a roster with its source.</p>
+  </section>
+
+  <section id="projects" class="mt-10 max-w-3xl">
+    <h2 class="text-xl font-semibold">Links to official project records</h2>
+    <p class="mt-2 text-ink-700">A post is linked to a project in Infrastructure Transparency only when all of these hold:</p>
+    <ol class="mt-2 list-decimal space-y-1 pl-5 text-ink-700">
+      <li>the reference number the contributor read on site (a tender reference, a PMGSY package number or a project code from a citizen information board) matches the official record, ignoring spaces and punctuation;</li>
+      <li>the official record's state includes the post's state;</li>
+      <li>the kind of work fits the post's category.</li>
+    </ol>
+    <p class="mt-2 text-ink-700">A similar name or a nearby place is never enough. Such records may be listed as <em>might be related</em>, clearly unlinked. Every link shows the evidence it rests on.</p>
+    <p class="mt-2 text-ink-700">Costs, agencies and contractors shown with a link are the official record's, with their source. They are for the whole project or contract, not for the stretch or building in the photo, and they say nothing about its condition.</p>
+  </section>
+</div>
+{% endblock %}

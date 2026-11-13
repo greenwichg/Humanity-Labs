@@ -65,3 +65,41 @@ run "failed_email_deliveries_raise_an_alarm" {
     error_message = "any failed delivery must notify the alert topic"
   }
 }
+
+run "no_photo_bucket_until_approved" {
+  command = plan
+  assert {
+    condition     = length(aws_s3_bucket.media) == 0 && output.media_bucket_name == ""
+    error_message = "the Community photo bucket must not exist unless community_media is set"
+  }
+}
+
+run "photo_bucket_is_private_encrypted_and_https_only" {
+  command = plan
+  variables {
+    community_media = true
+  }
+  assert {
+    condition     = aws_s3_bucket.media[0].bucket == "humanity-labs-media-111122223333"
+    error_message = "bucket name must match the boundary and deploy-role patterns in the bootstrap stack"
+  }
+  assert {
+    condition = alltrue([
+      aws_s3_bucket_public_access_block.media[0].block_public_acls, aws_s3_bucket_public_access_block.media[0].block_public_policy,
+      aws_s3_bucket_public_access_block.media[0].ignore_public_acls, aws_s3_bucket_public_access_block.media[0].restrict_public_buckets
+    ]) && aws_s3_bucket_ownership_controls.media[0].rule[0].object_ownership == "BucketOwnerEnforced"
+    error_message = "photos must never be publicly readable from S3"
+  }
+  assert {
+    condition     = one([for r in aws_s3_bucket_server_side_encryption_configuration.media[0].rule : one(r.apply_server_side_encryption_by_default).sse_algorithm]) == "AES256"
+    error_message = "photos must be encrypted at rest"
+  }
+  assert {
+    condition     = jsondecode(aws_s3_bucket_policy.media[0].policy).Statement[0].Effect == "Deny" && jsondecode(aws_s3_bucket_policy.media[0].policy).Statement[0].Condition.Bool["aws:SecureTransport"] == "false" && jsondecode(aws_s3_bucket_policy.media[0].policy).Statement[0].Resource == ["arn:aws:s3:::humanity-labs-media-111122223333", "arn:aws:s3:::humanity-labs-media-111122223333/*"]
+    error_message = "the bucket must refuse plain HTTP"
+  }
+  assert {
+    condition     = one([for r in aws_s3_bucket_lifecycle_configuration.media[0].rule : one(r.noncurrent_version_expiration).noncurrent_days]) == 7
+    error_message = "unblurred originals must not be kept as old versions for long"
+  }
+}

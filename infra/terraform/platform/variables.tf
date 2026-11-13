@@ -99,3 +99,9 @@ variable "domain_name" {
   type        = string
   default     = "humanitylabs.in"
 }
+
+variable "community_media" {
+  description = "Create the private S3 bucket for Community photos. Off until the owner approves turning on uploads."
+  type        = bool
+  default     = false
+}

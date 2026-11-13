@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf with context %}
+{% block title %}Edit your post{% endblock %}
+{% block body %}
+<div class="container-page max-w-2xl py-8">
+  <nav class="text-sm text-ink-500"><a href="/community/posts/{{ post.id }}">Back to the post</a></nav>
+  <h1 class="mt-2 text-2xl font-bold">Edit your post</h1>
+  <p class="mt-2 text-ink-600">Every change is kept in the post's edit history. The category, place and photo cannot change after posting; share a new photo instead.</p>
+  <form method="post" action="/community/posts/{{ post.id }}/edit" class="card card-pad mt-6 space-y-4">{{ csrf() }}
+    <div><label for="f-title" class="label">Title</label><input id="f-title" name="title" class="input {% if errors.get('title') %}input-error{% endif %}" value="{{ post.title }}" required minlength="8" maxlength="200">{% if errors.get('title') %}<p class="field-error">{{ errors['title'] }}</p>{% endif %}</div>
+    <div><label for="f-body" class="label">What do you see?</label><textarea id="f-body" name="body" rows="5" class="input">{{ post.body }}</textarea></div>
+    <div><label for="f-ref" class="label">Reference number on the site board <span class="font-normal text-ink-500">(optional)</span></label><input id="f-ref" name="official_reference" class="input" value="{{ post.official_reference or '' }}" maxlength="200"><p class="hint">Changing it re-checks the link to official records.</p></div>
+    <button class="btn-primary" type="submit">Save</button>
+  </form>
+</div>
+{% endblock %}

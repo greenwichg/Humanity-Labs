@@ -99,3 +99,22 @@ run "ecs_boundary_allows_reading_secrets_and_nothing_more" {
     error_message = "KMS decryption must be allowed only through Secrets Manager, and no other KMS action at all"
   }
 }
+
+run "photo_permissions_are_limited_to_the_media_bucket" {
+  command = plan
+  assert {
+    condition = anytrue([
+      for st in data.aws_iam_policy_document.ecs_boundary.statement :
+      st.sid == "CommunityPhotos" && st.resources == toset(["arn:aws:s3:::humanity-labs-media-111122223333/posts/*"])
+    ])
+    error_message = "the ECS boundary may allow photo access only under posts/ in this project's media bucket"
+  }
+  assert {
+    condition = anytrue([
+      for st in data.aws_iam_policy_document.deploy.statement :
+      st.resources == toset(["arn:aws:s3:::humanity-labs-media-111122223333"]) && length(setintersection(st.actions, ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:*"])) == 0
+      if st.sid == "ManageMediaBucket"
+    ])
+    error_message = "the deploy role may configure the photo bucket but never read or change the photos"
+  }
+}

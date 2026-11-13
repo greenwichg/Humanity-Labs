@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf with context %}
+{% from "infra/_macros.html" import badge with context %}
+{% from "community/_macros.html" import score_badge, note_status, comment_tree with context %}
+{% block title %}{{ post.title }}{% endblock %}
+{% block description %}{{ category.label }} in {{ post.locality.name }}, {{ REGION_BY_SLUG[post.state_slug].name }}: a community photo with its image assessment, community notes and discussion.{% endblock %}
+{% block head %}
+<meta property="og:title" content="{{ post.title }}">
+<meta property="og:description" content="{{ category.label }} in {{ post.locality.name }}, {{ REGION_BY_SLUG[post.state_slug].name }}. Community photo on Humanity Labs.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="{{ share_url }}">
+{% if post.status == 'published' %}<meta property="og:image" content="{{ share_url|replace('/posts/', '/media/') }}/photo">{% endif %}
+{% endblock %}
+{% block body %}
+<div class="container-page py-8">
+  <nav class="text-sm text-ink-500" aria-label="Breadcrumb">
+    <a href="/community">Community</a> ›
+    <a href="/community/places/country/{{ post.country_code }}">India</a> ›
+    <a href="/community/places/state/{{ post.state_slug }}">{{ REGION_BY_SLUG[post.state_slug].name }}</a> ›
+    <a href="/community/places/{{ post.locality.kind }}/{{ post.locality.id }}">{{ post.locality.name }}</a>
+  </nav>
+
+  {% if post.status == 'processing' %}
+  <div class="mt-4 rounded-xl bg-beam-50 p-4 text-sm text-ink-900 ring-1 ring-beam-200" role="status">
+    <p class="font-semibold">Only you can see this post for now.</p>
+    <p class="mt-1">{% if post.analysis_status == 'failed' %}The automatic check failed; the team will look at it.{% else %}Faces and number plates are being blurred and the photo assessed. This usually takes under a minute; refresh to see the result.{% endif %}</p>
+  </div>
+  {% elif post.status == 'hidden' %}
+  <p class="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-900 ring-1 ring-red-200">This post was hidden by a moderator.</p>
+  {% endif %}
+
+  <header class="mt-3 flex flex-wrap items-start justify-between gap-4">
+    <div class="min-w-0">
+      <p class="flex flex-wrap items-center gap-2 text-sm"><span class="badge bg-ink-900 text-white">{{ category.label }}</span> <span class="text-ink-500">{{ post.locality.name }} ({{ post.locality.kind }}){% if post.district %}, {{ post.district }}{% endif %}, {{ REGION_BY_SLUG[post.state_slug].name }}</span></p>
+      <h1 class="mt-2 text-2xl font-bold sm:text-3xl">{{ post.title }}</h1>
+      <p class="mt-1 text-sm text-ink-500">
+        Shared by {% if post.author %}<a href="/community/contributors/{{ post.author.id }}">{{ post.author.full_name }}</a>{% else %}a former member{% endif %}
+        · <time datetime="{{ post.created_at.isoformat() }}">{{ post.created_at|date }}</time>
+        {% if post.edited_at %} · <a href="#history">edited</a>{% endif %}
+        · {{ post.latitude }}, {{ post.longitude }} ({{ {'device': 'from the device', 'photo': 'from the photo', 'pin': 'entered'}[post.location_source] }})
+      </p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      {% if post.status == 'published' %}
+      <form method="post" action="/community/posts/{{ post.id }}/share">{{ csrf() }}
+        <button type="button" class="btn-secondary btn-sm" data-share="{{ share_url }}" data-title="{{ post.title }}">Share{% if post.share_count %} · {{ post.share_count }}{% endif %}</button>
+      </form>
+      {% endif %}
+      {% if is_author %}<a href="/community/posts/{{ post.id }}/edit" class="btn-secondary btn-sm">Edit</a>{% endif %}
+      {% if auth %}
+      <details class="relative">
+        <summary class="btn-secondary btn-sm cursor-pointer list-none">Report</summary>
+        <form method="post" action="/community/posts/{{ post.id }}/report" class="absolute right-0 z-20 mt-2 w-72 space-y-2 rounded-xl bg-white p-4 text-sm shadow-lg ring-1 ring-ink-100">{{ csrf() }}
+          <input type="hidden" name="target_type" value="post">
+          <p class="font-semibold">What is wrong with this post?</p>
+          {% for k, v in REPORT_REASONS.items() %}<label class="flex gap-2"><input type="radio" name="reason" value="{{ k }}" required> {{ v }}</label>{% endfor %}
+          <label for="rp-details" class="sr-only">Details</label>
+          <textarea id="rp-details" name="details" rows="2" class="input" placeholder="Details (optional)"></textarea>
+          <button class="btn-primary btn-sm" type="submit">Send to moderators</button>
+        </form>
+      </details>
+      {% endif %}
+    </div>
+  </header>
+
+  <div class="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+    <div class="space-y-8">
+      {# ------------------------------------------------------------------ photo #}
+      <figure class="group card overflow-hidden">
+        <div class="relative bg-ink-900">
+          {% if image %}
+          <img src="/community/media/{{ post.id }}/photo" alt="{{ post.title }}" class="mx-auto block max-h-[70vh] w-auto" width="{{ image.width }}" height="{{ image.height }}">
+          {% if assessment %}
+          <div class="pointer-events-none absolute inset-0 mx-auto" style="aspect-ratio: {{ image.width }}/{{ image.height }}; max-height: 70vh;">
+            {% if assessment.mask_key %}<img src="/community/media/{{ post.id }}/mask" alt="" class="absolute inset-0 hidden h-full w-full group-has-[#show-area:checked]:block">{% endif %}
+            {% for d in assessment.detections %}
+            <div class="absolute hidden rounded-sm border-2 border-beam-400 group-has-[#show-boxes:checked]:block" style="left: {{ d.x * 100 }}%; top: {{ d.y * 100 }}%; width: {{ d.w * 100 }}%; height: {{ d.h * 100 }}%;">
+              <span class="absolute -top-5 left-0 whitespace-nowrap rounded bg-beam-400 px-1 text-[11px] font-semibold text-ink-950">{{ d.label }} {{ d.score|pct }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% endif %}
+        </div>
+        <figcaption class="flex flex-wrap items-center gap-4 p-3 text-sm text-ink-600">
+          {% if assessment %}
+          <label class="flex items-center gap-2"><input id="show-boxes" type="checkbox"> Show detected defects ({{ assessment.detections|length }})</label>
+          {% if assessment.mask_key %}<label class="flex items-center gap-2"><input id="show-area" type="checkbox"> Show damaged areas</label>{% endif %}
+          {% endif %}
+          {% if image and image.privacy_blurred %}<span>{{ image.privacy_blurred }} face{{ 's' if image.privacy_blurred != 1 }} or number plate{{ 's' if image.privacy_blurred != 1 }} blurred automatically</span>{% endif %}
+        </figcaption>
+      </figure>
+
+      {% if post.body %}<section><h2 class="sr-only">Description</h2><p class="whitespace-pre-line text-ink-900">{{ post.body }}</p></section>{% endif %}
+
+      {# ------------------------------------------------------------------ image assessment #}
+      <section id="assessment" class="card card-pad" aria-labelledby="assessment-h">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id="assessment-h" class="text-lg font-bold">Image assessment</h2>
+            <p class="text-sm text-ink-500">By computer vision, from this photo only. Community notes and the discussion never change it.</p>
+        {% if post.repeat_of %}<p class="mt-3 rounded-lg bg-ink-50 p-3 text-sm text-ink-700 ring-1 ring-ink-200">The same contributor shared <a href="/community/posts/{{ post.repeat_of }}">a very similar photo of this spot</a> shortly before, so this one is not counted again in rankings. Both stay visible.</p>{% endif %}
+          </div>
+          {{ score_badge(assessment) }}
+        </div>
+        <p class="mt-3 rounded-lg bg-ink-50 p-3 text-sm text-ink-700">The score describes the <strong>visible condition</strong> in this one photo, out of 100. It does not say whether a structure is safe, and it cannot see hidden or structural defects. Only an engineer's inspection can.</p>
+        {% if not assessment %}
+        <p class="mt-4 text-sm text-ink-600">Not assessed yet.</p>
+        {% else %}
+        {% if assessment.not_scored_reason %}<p class="mt-4 rounded-lg bg-beam-50 p-3 text-sm ring-1 ring-beam-200"><strong>Not scored.</strong> {{ assessment.not_scored_reason }}</p>{% endif %}
+        {% if assessment.description %}
+        <div class="mt-4">
+          <h3 class="text-sm font-semibold">What the photo shows</h3>
+          <p class="mt-1 text-ink-900">{{ assessment.description }}</p>
+          <p class="mt-1 text-xs text-ink-500">Written by {{ assessment.description_model }}, a vision-language model. It can be wrong; sentences about safety or structure are removed.</p>
+        </div>
+        {% endif %}
+        {% if assessment.observations %}
+        <div class="mt-4">
+          <h3 class="text-sm font-semibold">Observations</h3>
+          <ul class="mt-1 list-disc space-y-1 pl-5 text-sm text-ink-800">{% for o in assessment.observations %}<li>{{ o }}</li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+        <div class="mt-4 overflow-x-auto">
+          <h3 class="text-sm font-semibold">How the score was worked out</h3>
+          <table class="mt-2 w-full text-left text-sm">
+            <thead class="text-xs uppercase text-ink-500"><tr><th class="py-1 pr-3">Criterion</th><th class="py-1 pr-3">Evidence in this photo</th><th class="py-1 text-right">Points off</th></tr></thead>
+            <tbody class="divide-y divide-ink-100">
+              {% for c in assessment.criteria %}
+              <tr class="align-top"><td class="py-2 pr-3 font-medium">{{ c.label }}</td><td class="py-2 pr-3">{{ c.evidence }}<p class="mt-0.5 text-xs text-ink-500">{{ c.method }}</p></td><td class="py-2 text-right tabular-nums">{% if c.max %}−{{ c.points }} <span class="text-xs text-ink-500">of {{ "%.0f"|format(c.max) }}</span>{% else %}<span class="text-xs text-ink-500">not scored</span>{% endif %}</td></tr>
+              {% endfor %}
+              <tr><td class="py-2 font-semibold" colspan="2">{% if assessment.score is not none %}Visible condition score: 100 minus the points off{% else %}No score{% endif %}</td><td class="py-2 text-right font-semibold tabular-nums">{{ assessment.score if assessment.score is not none else '—' }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <details class="mt-4 text-sm">
+          <summary class="cursor-pointer font-medium text-ink-800">Confidence, photo quality and models</summary>
+          <dl class="mt-2 grid gap-x-6 gap-y-1 text-ink-700 sm:grid-cols-2">
+            <div><dt class="inline font-medium">Confidence:</dt> <dd class="inline">{{ assessment.confidence_label }} ({{ assessment.confidence|pct }}), from photo quality, how well the photo matches {{ category.label|lower }}, and whether the condition rating and the outlined regions agree.</dd></div>
+            <div><dt class="inline font-medium">Matches the category:</dt> <dd class="inline">{{ (assessment.scene.chosen or 0)|pct }} among all categories{% if assessment.scene.top != post.category %}; closest was {{ CATEGORY_LABELS.get(assessment.scene.top, assessment.scene.top)|lower }}{% endif %}.</dd></div>
+            <div><dt class="inline font-medium">Sharpness:</dt> <dd class="inline">{{ assessment.quality.sharpness }}</dd></div>
+            <div><dt class="inline font-medium">Brightness:</dt> <dd class="inline">{{ assessment.quality.brightness }} of 255</dd></div>
+            <div><dt class="inline font-medium">Size:</dt> <dd class="inline">{{ assessment.quality.width }} × {{ assessment.quality.height }} pixels</dd></div>
+            <div><dt class="inline font-medium">Quality problems:</dt> <dd class="inline">{{ assessment.quality.problems|join(' ') if assessment.quality.problems else 'none found' }}</dd></div>
+            <div class="sm:col-span-2"><dt class="inline font-medium">Models:</dt> <dd class="inline">{% for k, v in assessment.model_versions.items() %}{{ v }}{{ ', ' if not loop.last }}{% endfor %}; engine {{ assessment.engine_version }}; assessed {{ assessment.created_at|date }} in {{ assessment.seconds }} s.</dd></div>
+          </dl>
+          <p class="mt-2"><a href="/community/about#scoring">How scoring works, and its limits</a></p>
+        </details>
+        {% endif %}
+      </section>
+
+      {# ------------------------------------------------------------------ discussion #}
+      <section id="discussion" class="scroll-mt-24">
+        <details class="card" {% if request.query_params.get('open') == 'discussion' %}open{% endif %}>
+          <summary class="flex cursor-pointer items-center justify-between gap-3 p-4">
+            <span class="inline-flex items-center gap-2 font-bold">
+              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="currentColor" class="text-ink-500"><path d="M3 4.5A2.5 2.5 0 0 1 5.5 2h9A2.5 2.5 0 0 1 17 4.5v7a2.5 2.5 0 0 1-2.5 2.5H9l-4 3.5V14A2.5 2.5 0 0 1 3 11.5v-7Z"/></svg>
+              Discussion · {{ comment_count }} comment{{ 's' if comment_count != 1 }}
+            </span>
+            <span class="text-sm text-ink-500">Open</span>
+          </summary>
+          <div class="border-t border-ink-100 p-4">
+            <p class="text-sm text-ink-500">Talk about this photo and the place. Comments don't change the assessment or community notes.</p>
+            {% if auth %}
+            <form method="post" action="/community/posts/{{ post.id }}/comments" class="mt-3 space-y-2">{{ csrf() }}
+              <label for="new-comment" class="sr-only">Add a comment</label>
+              <textarea id="new-comment" name="body" rows="3" class="input" placeholder="Add to the discussion" required minlength="2" maxlength="5000"></textarea>
+              <button class="btn-primary btn-sm" type="submit">Comment</button>
+            </form>
+            {% else %}
+            <p class="mt-3 text-sm"><a href="/login?next=/community/posts/{{ post.id }}">Sign in</a> or <a href="/community/join?next=/community/posts/{{ post.id }}">join</a> to comment.</p>
+            {% endif %}
+            {% if tree %}
+            <p class="mt-4 text-sm text-ink-600">Sort: <a href="?sort=top&open=discussion#discussion" class="{{ 'font-semibold' if sort == 'top' }}">top</a> · <a href="?sort=new&open=discussion#discussion" class="{{ 'font-semibold' if sort == 'new' }}">oldest first</a></p>
+            <div class="mt-3">{{ comment_tree(tree, post) }}</div>
+            {% endif %}
+          </div>
+        </details>
+      </section>
+    </div>
+
+    <div class="space-y-8">
+      {# ------------------------------------------------------------------ community notes #}
+      <section id="notes" class="card card-pad scroll-mt-24" aria-labelledby="notes-h">
+        <h2 id="notes-h" class="text-lg font-bold">Community notes</h2>
+        <p class="text-sm text-ink-500">Context, corrections and evidence added by contributors. A note is marked Helpful only when contributors who usually rate differently agree. Notes never change the score.</p>
+        {% if not notes %}<p class="mt-3 text-sm text-ink-600">No notes yet.</p>{% endif %}
+        <ol class="mt-3 space-y-4">
+          {% for n in notes %}
+          {% set ev = events.get(n.id, []) %}
+          <li id="note-{{ n.id }}" class="scroll-mt-24 rounded-xl p-4 ring-1 {{ 'bg-emerald-50 ring-emerald-200' if n.status == 'helpful' else 'bg-white ring-ink-100' }}">
+            <div class="flex flex-wrap items-center gap-2 text-xs">{{ note_status(n.status) }} <span class="badge bg-ink-100 text-ink-700">{{ n.kind|title }}</span> <span class="text-ink-500">{{ n.ratings_count }} rating{{ 's' if n.ratings_count != 1 }}</span></div>
+            <p class="mt-2 whitespace-pre-line text-sm text-ink-900">{{ n.body }}</p>
+            {% if n.sources %}<ul class="mt-2 space-y-0.5 text-xs">{% for s in n.sources %}<li><a href="{{ s }}" rel="noopener noreferrer nofollow ugc" target="_blank">{{ source_host(s) }}</a></li>{% endfor %}</ul>{% endif %}
+            <p class="mt-2 text-xs text-ink-500">By {% if n.author %}<a href="/community/contributors/{{ n.author.id }}">{{ n.author.full_name }}</a>{% else %}a former member{% endif %} · {{ n.created_at|date }}{% if n.edited_at %} · edited {{ n.edited_at|date }}{% endif %}</p>
+            {% if ev %}<p class="mt-2 text-xs text-ink-700">{{ ev[-1].explanation }}</p>{% endif %}
+            {% set rc = rating_counts.get(n.id, {}) %}
+            <p class="mt-1 text-xs text-ink-500">Ratings: {{ rc.get('helpful', 0) }} helpful, {{ rc.get('somewhat', 0) }} somewhat, {{ rc.get('not_helpful', 0) }} not helpful.</p>
+            {% if auth and n.author_id != auth.user.id %}
+            <form method="post" action="/community/notes/{{ n.id }}/rate" class="mt-2 flex flex-wrap items-center gap-2 text-xs">{{ csrf() }}
+              <span class="text-ink-600">Is this note helpful?</span>
+              {% for r in RATINGS %}<button name="value" value="{{ r }}" class="rounded-full px-2.5 py-1 ring-1 {{ 'bg-ink-900 text-white ring-ink-900' if my_ratings.get(n.id) == r else 'bg-white text-ink-800 ring-ink-200 hover:bg-ink-50' }}" aria-pressed="{{ 'true' if my_ratings.get(n.id) == r else 'false' }}">{{ {'helpful': 'Yes', 'somewhat': 'Somewhat', 'not_helpful': 'No'}[r] }}</button>{% endfor %}
+            </form>
+            {% endif %}
+            <details class="mt-2 text-xs text-ink-600">
+              <summary class="cursor-pointer">Status history{% if versions.get(n.id) %} and earlier versions{% endif %}</summary>
+              <ol class="mt-1 space-y-1">{% for e in ev %}<li>{{ e.created_at|date }} {{ e.created_at.strftime('%H:%M') }} UTC: {{ STATUS_LABELS.get(e.status, e.status) }} ({{ e.ratings_count }} ratings)</li>{% endfor %}</ol>
+              {% for v in versions.get(n.id, []) %}<div class="mt-2 rounded bg-ink-50 p-2"><p class="font-medium">Before {{ v.created_at|date }}:</p><p class="whitespace-pre-line">{{ v.body }}</p></div>{% endfor %}
+            </details>
+            {% if auth and n.author_id == auth.user.id %}
+            <details class="mt-2 text-xs">
+              <summary class="cursor-pointer text-ink-600">Edit your note</summary>
+              <form method="post" action="/community/notes/{{ n.id }}/edit" class="mt-2 space-y-2">{{ csrf() }}
+                <label for="ne-{{ n.id }}" class="sr-only">Note</label>
+                <textarea id="ne-{{ n.id }}" name="body" rows="3" class="input" required minlength="20" maxlength="1500">{{ n.body }}</textarea>
+                <label for="ns-{{ n.id }}" class="sr-only">Sources</label>
+                <textarea id="ns-{{ n.id }}" name="sources" rows="2" class="input" placeholder="Links, one per line">{{ n.sources|join('\n') }}</textarea>
+                <p class="text-ink-500">Editing clears the ratings, because they were for the old text.</p>
+                <button class="btn-secondary btn-sm" type="submit">Save</button>
+              </form>
+            </details>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+        {% if auth %}
+        <details class="mt-4">
+          <summary class="btn-secondary btn-sm inline-block cursor-pointer list-none">Add a note</summary>
+          <form method="post" action="/community/posts/{{ post.id }}/notes" class="mt-3 space-y-3 text-sm">{{ csrf() }}
+            <fieldset><legend class="label">Kind of note</legend>
+              <div class="flex flex-wrap gap-3">{% for k in NOTE_KINDS %}<label class="flex items-center gap-1.5"><input type="radio" name="kind" value="{{ k }}" {% if loop.first %}checked{% endif %}> {{ {'context': 'Context', 'correction': 'Correction', 'evidence': 'Supporting evidence'}[k] }}</label>{% endfor %}</div>
+            </fieldset>
+            <div><label for="note-body" class="label">Your note</label><textarea id="note-body" name="body" rows="4" class="input" required minlength="20" maxlength="1500" placeholder="For example: this stretch was resurfaced in March; the photo is from before that."></textarea></div>
+            <div><label for="note-sources" class="label">Sources <span class="font-normal text-ink-500">(links, one per line)</span></label><textarea id="note-sources" name="sources" rows="2" class="input" placeholder="https://"></textarea></div>
+            <button class="btn-primary btn-sm" type="submit">Add note</button>
+          </form>
+        </details>
+        {% else %}
+        <p class="mt-4 text-sm"><a href="/login?next=/community/posts/{{ post.id }}">Sign in</a> or <a href="/community/join?next=/community/posts/{{ post.id }}">join</a> to add or rate notes.</p>
+        {% endif %}
+      </section>
+
+      {# ------------------------------------------------------------------ representatives #}
+      <section class="card card-pad" aria-labelledby="reps-h">
+        <h2 id="reps-h" class="text-lg font-bold">Elected representatives for this area</h2>
+        <p class="text-sm text-ink-500">Found automatically from the post's location and constituency maps. They represent the area. That does not make them responsible for what the photo shows: who owns and maintains it depends on the asset.</p>
+        <ul class="mt-3 space-y-3 text-sm">
+          {% for r in representatives %}
+          {% set lv = REP_LEVELS[r.constituency.kind] %}
+          <li class="rounded-lg bg-ink-50 p-3">
+            <p class="text-xs font-semibold uppercase tracking-wide text-ink-500">{{ lv[0] }} · {{ lv[1] }}</p>
+            {% if r.representative %}
+            <p class="mt-1 font-semibold">{{ r.representative.name }}{% if r.representative.party %} <span class="font-normal text-ink-600">({{ r.representative.party }})</span>{% endif %}</p>
+            {% else %}
+            <p class="mt-1 text-ink-700">Representative not loaded yet.</p>
+            {% endif %}
+            <p class="text-ink-700">{{ r.constituency.name }} constituency (no. {{ r.constituency.number }}), {{ REGION_BY_SLUG[r.constituency.state_slug].name }}</p>
+            {% if r.constituency.state_slug != post.state_slug %}<p class="mt-1 text-xs text-red-800">Our boundary map files this seat under {{ REGION_BY_SLUG[r.constituency.state_slug].name }}, not {{ REGION_BY_SLUG[post.state_slug].name }}: the map predates a change of state boundaries (for example Telangana, formed in 2014), so this constituency may be out of date.</p>{% endif %}
+            {% if r.constituency.boundary_status and 'pre' in r.constituency.boundary_status|lower %}<p class="mt-1 text-xs text-red-800">The boundary in our map predates the latest delimitation, so this constituency may be out of date.</p>{% endif %}
+            <p class="mt-1 text-xs text-ink-500">Boundary: <a href="{{ r.constituency.source_url }}" rel="noopener noreferrer" target="_blank">{{ r.constituency.source }}</a>{% if r.representative %} · Representative: <a href="{{ r.representative.source_url }}" rel="noopener noreferrer" target="_blank">{{ r.representative.source }}</a>{% endif %}</p>
+          </li>
+          {% else %}
+          <li class="text-ink-600">No constituency found for this location. Constituency maps may not be loaded yet.</li>
+          {% endfor %}
+          {% for level, role, why in NOT_AVAILABLE %}
+          <li class="rounded-lg p-3 ring-1 ring-ink-100"><p class="text-xs font-semibold uppercase tracking-wide text-ink-500">{{ level }} · {{ role }}</p><p class="mt-1 text-ink-600">{{ why }}</p></li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      {# ------------------------------------------------------------------ official records #}
+      <section class="card card-pad" aria-labelledby="official-h">
+        <h2 id="official-h" class="text-lg font-bold">Official project records</h2>
+        <p class="text-sm text-ink-500">From <a href="/infrastructure">Infrastructure Transparency</a>. Official records, kept separate from this citizen photo and its assessment.</p>
+        {% set has_link = linked|selectattr('0.status', 'equalto', 'linked')|list %}
+        {% for link, project in linked %}
+        {% if link.status == 'linked' and project %}
+        <div class="mt-4 rounded-xl p-4 ring-1 ring-emerald-200">
+          <p class="text-xs font-semibold uppercase tracking-wide text-emerald-800">Linked by reference number</p>
+          <p class="mt-1 font-semibold"><a href="/infrastructure/projects/{{ project.id }}">{{ project.title[:160] }}</a></p>
+          <ul class="mt-2 list-disc space-y-0.5 pl-5 text-xs text-ink-600">{% for e in link.evidence %}<li>{{ e }}</li>{% endfor %}</ul>
+          <dl class="mt-3 divide-y divide-ink-100 text-sm">
+            {% for f in finance.get(project.id, []) %}
+            <div class="grid gap-1 py-2 sm:grid-cols-[11rem_1fr]">
+              <dt class="text-ink-600">{{ f.question }}</dt>
+              <dd>{% if f.answer %}{{ f.answer }}{% else %}<span class="text-ink-500">Not published</span>{% endif %}
+                <span class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-500">{% if f.evidence %}{{ badge(f.evidence) }}{% endif %}{% if f.note %}<span>{{ f.note }}</span>{% endif %}{% if f.source_url %}<a href="{{ f.source_url }}" rel="noopener noreferrer" target="_blank">Source</a>{% endif %}</span>
+              </dd>
+            </div>
+            {% endfor %}
+          </dl>
+          <p class="mt-3 rounded-lg bg-beam-50 p-3 text-xs text-ink-900 ring-1 ring-beam-200">{{ CAVEAT }}</p>
+        </div>
+        {% elif link.status == 'rejected' and project %}
+        <div class="mt-4 rounded-xl bg-ink-50 p-3 text-sm">
+          <p class="font-medium">A record has this reference number but was not linked:</p>
+          <p class="mt-1"><a href="/infrastructure/projects/{{ project.id }}">{{ project.title[:140] }}</a></p>
+          <ul class="mt-1 list-disc pl-5 text-xs text-ink-600">{% for e in link.evidence %}<li>{{ e }}</li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+        {% endfor %}
+        {% if not has_link %}
+        <p class="mt-3 text-sm text-ink-600">{% if post.official_reference %}No official record matches the reference "{{ post.official_reference }}".{% else %}Not linked to an official record: the post has no reference number from a site board.{% endif %}</p>
+        {% if related %}
+        <div class="mt-3">
+          <p class="text-sm font-medium">Official records that might be related, not linked</p>
+          <p class="text-xs text-ink-500">Same state, a fitting type of work and some shared words. That is not enough to say this photo shows them.</p>
+          <ul class="mt-2 space-y-1 text-sm">{% for p in related %}<li><a href="/infrastructure/projects/{{ p.id }}">{{ p.title[:120] }}</a></li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+        {% endif %}
+      </section>
+
+      {% if edits %}
+      <section id="history" class="card card-pad text-sm" aria-labelledby="history-h">
+        <h2 id="history-h" class="font-bold">Edit history</h2>
+        <ol class="mt-2 space-y-2">
+          {% for e in edits %}<li><span class="text-ink-500">{{ e.created_at|date }} {{ e.created_at.strftime('%H:%M') }} UTC</span> · {{ e.field.replace('_', ' ') }}: <span class="line-through text-ink-500">{{ e.old_value or '(empty)' }}</span> → {{ e.new_value or '(empty)' }}</li>{% endfor %}
+        </ol>
+      </section>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
